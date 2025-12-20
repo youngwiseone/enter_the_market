@@ -27,17 +27,32 @@ DATA_DIR = "data"
 RES_DIR = "resources"
 
 DEFAULT_STARTING_CASH = 100
-DEFAULT_CAPACITY = 30          # how many total units the player can hold
-CAPACITY_STEP = 10             # storage upgrade increment
+# The default number of item slots the player starts with.  In this game we
+# treat storage space as an ongoing subscription rather than a one‑time
+# purchase – the rent you pay at the end of each week is equal to the
+# capacity you have.  Starting capacity is intentionally small so that
+# players feel pressure to upgrade only when necessary.
+DEFAULT_CAPACITY = 5           # how many total units the player can hold
+
+# When changing storage on Sundays the capacity will be adjusted by this
+# amount per click.  A smaller step makes incremental upgrades feel fair
+# and aligns with the weekly rent schedule.
+CAPACITY_STEP = 5             # storage change increment
 
 # Price dynamics
 VOLATILITY = 0.18              # daily price movement magnitude (relative)
 SPREAD = 0.90                  # player's sell price = shop buy price * SPREAD
 RESTOCK_MIN, RESTOCK_MAX = 0, 8  # new shop stock each day
 
-# Shop bills: every BILL_INTERVAL days, pay BILL_BASE * (day // BILL_INTERVAL)
-BILL_INTERVAL = 30
-BILL_BASE = 100
+# Rent is collected weekly rather than monthly.  Every BILL_INTERVAL days
+# (with the game starting on a Monday), you must pay an amount equal to
+# your current capacity.  For example, if you have 8 storage slots when
+# rent is due, you will pay $8.
+BILL_INTERVAL = 7
+# BILL_BASE is unused in the weekly rent model but retained for backwards
+# compatibility.  It has no effect on gameplay when rent is computed as
+# capacity.
+BILL_BASE = 0
 
 # Retro colour palette
 # Classic Windows 95 greys and blues
@@ -63,12 +78,18 @@ COLOR_TOAST = (200, 50, 50)
 COLOR_CHAT_BACKGROUND = (0, 0, 0)
 COLOR_CHAT_TEXT = (0, 255, 0)
 
+# Human‑friendly names for days of the week.  The game always starts on
+# Monday (day 1) and increments the day counter from there.  These names
+# are used in the HUD to display the current weekday alongside the day
+# number.
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
 # Chat formatting
 CHAT_LINE_HEIGHT = 16  # pixel height per chat line
 
 # Layout constants
 MARGIN = 20
-SPACING = 20
+SPACING = 10
 TABLE_WIDTH = (WIDTH - 2 * MARGIN - SPACING) // 2
 TABLE_HEIGHT = 300
 HEADER_HEIGHT = 30
@@ -92,12 +113,13 @@ GRAPH_HEIGHT = 60
 # Column widths for tables (sum should fit within table width minus scroll bar)
 # Shop columns: image, sku, description, quantity, current price, average buy price,
 # input field, button.  Total width must be <= table_panel.width - scroll bar.
-SHOP_COL_WIDTHS = [24, 60, 160, 60, 70, 70, 50, 50]
+SHOP_COL_WIDTHS = [26, 60, 140, 70, 70, 70, 50, 50]
 # Inventory columns: image, sku, description, avg cost, quantity, sell price,
 # input field, button.
-INV_COL_WIDTHS = [24, 60, 180, 60, 50, 70, 50, 50]
-SHOP_HEADERS = ["Img", "SKU", "Description", "Qty", "Price", "Avg", "Qty", ""]
-INV_HEADERS = ["Img", "SKU", "Description", "Avg", "Qty", "Price", "Qty", ""]
+INV_COL_WIDTHS = [26, 60, 140, 70, 80, 80, 30, 30]
+#SHOP_HEADERS = ["Img", "SKU", "Description", "In Stock", "Price", "Avg_Price", "Qty", ""]
+SHOP_HEADERS = ["Img", "SKU", "Description", "Avg_Price", "Buy_price", "In Stock",  "Qty", ""]
+INV_HEADERS = ["Img", "SKU", "Description", "Avg_cost", "Sell_price", "SOH", "Qty", ""]
 
 # CSV file paths
 ITEMS_CSV = os.path.join(DATA_DIR, "items.csv")
@@ -349,14 +371,16 @@ def next_day(items, shop, player):
     # Advance day
     player["day"] += 1
 
-    # Every BILL_INTERVAL days, deduct bill from cash
+    # Every BILL_INTERVAL days (i.e. at the end of each week), deduct rent
+    # from cash.  Rent is equal to the player's current capacity.  Note that
+    # player["day"] starts at 1 (Monday), so a week ends whenever
+    # player["day"] % BILL_INTERVAL == 0 (Sunday).
     if player["day"] % BILL_INTERVAL == 0:
-        periods = player["day"] // BILL_INTERVAL
-        cost = BILL_BASE * periods
+        cost = player["capacity"]
         player["cash"] -= cost
-        # Log as a bill transaction; use SKU "" to denote non-item
-        log_txn(player["day"], "", "BILL", 1, cost, cost, player["cash"])
-        return f"Paid shop bills: ${cost}"
+        # Log as a rent transaction; use SKU "" to denote non‑item
+        log_txn(player["day"], "", "RENT", 1, cost, cost, player["cash"])
+        return f"Paid rent: ${cost}"
     return ""
 
 
@@ -546,8 +570,8 @@ def main():
     clock = pygame.time.Clock()
 
     # Fonts: default sans-serif approximates MS Sans Serif
-    font_small = pygame.font.Font(None, 16)
-    font_medium = pygame.font.Font(None, 20)
+    font_small = pygame.font.Font(None, 20)
+    font_medium = pygame.font.Font(None, 22)
     font_large = pygame.font.Font(None, 28)
     font_title = pygame.font.Font(None, 24)
 
@@ -596,6 +620,9 @@ def main():
     down_inv_btn = None
     next_day_btn = None
     buy_space_btn = None
+    # Buttons for adjusting storage capacity (displayed on Sundays)
+    inc_space_btn = None
+    dec_space_btn = None
     # Chat scroll buttons
     chat_up_btn = None
     chat_down_btn = None
@@ -773,14 +800,60 @@ def main():
 
     # Functions for day advance and capacity purchase
     def purchase_space():
-        cost = capacity_upgrade_cost(player)
-        if player["cash"] >= cost:
-            player["cash"] -= cost
-            player["capacity"] += CAPACITY_STEP
-            save_player(player)
-            set_toast(f"Bought +{CAPACITY_STEP} storage for ${cost}")
-        else:
-            set_toast(f"Not enough cash to buy space (${cost})")
+        """
+        Deprecated: storage space is no longer purchased with a one‑time cost.
+        Storage capacity is now adjusted weekly on Sundays, and rent is
+        proportional to capacity.  This function is kept for backward
+        compatibility but will simply inform the player that space must be
+        changed on Sundays.
+        """
+        set_toast("Storage changes can only be made on Sundays via the Increase/Decrease buttons.")
+
+    # Track the last day on which the player changed their storage.  This
+    # ensures players can only modify storage once per week.  Initialise to
+    # zero (no changes made yet).
+    last_space_change_day = 0
+
+    def increase_space():
+        """Increase the player's capacity by CAPACITY_STEP on a Sunday."""
+        nonlocal last_space_change_day
+        # Only allow changes on Sunday (end of week)
+        if player['day'] % BILL_INTERVAL != 0:
+            set_toast("You can only change storage on Sundays.")
+            return
+        # Prevent multiple changes on the same Sunday
+        if last_space_change_day == player['day']:
+            set_toast("You have already changed storage this Sunday.")
+            return
+        # Apply the increase
+        player['capacity'] += CAPACITY_STEP
+        last_space_change_day = player['day']
+        save_player(player)
+        set_toast(f"Increased storage to {player['capacity']} slots")
+
+    def decrease_space():
+        """Decrease the player's capacity by CAPACITY_STEP on a Sunday."""
+        nonlocal last_space_change_day
+        # Only allow changes on Sunday (end of week)
+        if player['day'] % BILL_INTERVAL != 0:
+            set_toast("You can only change storage on Sundays.")
+            return
+        # Prevent multiple changes on the same Sunday
+        if last_space_change_day == player['day']:
+            set_toast("You have already changed storage this Sunday.")
+            return
+        # Ensure there is room to decrease without losing items
+        used = inv_used_units(inv)
+        if player['capacity'] - CAPACITY_STEP < used:
+            set_toast("Cannot decrease below current used storage.")
+            return
+        if player['capacity'] - CAPACITY_STEP < 1:
+            set_toast("Cannot decrease below 1.")
+            return
+        player['capacity'] -= CAPACITY_STEP
+        last_space_change_day = player['day']
+        save_player(player)
+        set_toast(f"Decreased storage to {player['capacity']} slots")
 
     def advance_day():
         """Advance the day, update prices and averages, pay bills and generate tips."""
@@ -821,11 +894,17 @@ def main():
             best_sell = max(sell_candidates, key=lambda x: x[1] / x[2])
             sku, sp, cost = best_sell
             tips.append(f"Tip: SELL {sku} – sell ${sp:.2f} > cost ${cost:.2f}")
-        # Facts about rent due and cash
-        days_until = BILL_INTERVAL - (player['day'] % BILL_INTERVAL)
-        if days_until != BILL_INTERVAL:
-            next_bill_amount = BILL_BASE * ((player['day'] // BILL_INTERVAL) + 1)
-            facts.append(f"{days_until} day{'s' if days_until != 1 else ''} till rent (${next_bill_amount}) is due.")
+        # Facts about rent due and cash.  Rent is due every BILL_INTERVAL days
+        # (i.e. weekly) and is equal to your current capacity.  Compute the
+        # number of days until the next rent day by taking the modulus of
+        # the current day.  When days_until is zero, rent is due today.
+        rem = player['day'] % BILL_INTERVAL
+        days_until = (BILL_INTERVAL - rem) % BILL_INTERVAL
+        next_rent = player['capacity']
+        if days_until == 0:
+            facts.append(f"Rent (${next_rent}) is due today.")
+        else:
+            facts.append(f"{days_until} day{'s' if days_until != 1 else ''} till rent (${next_rent}) is due.")
         # Always include cash fact
         facts.append(f"You have ${player['cash']:.2f} cash.")
         # Show bill message if any.  set_toast adds it to chat as well.
@@ -885,6 +964,9 @@ def main():
                 chat_up_btn.handle_event(event)
                 chat_down_btn.handle_event(event)
                 next_day_btn.handle_event(event)
+                # storage change buttons handle their own restrictions
+                inc_space_btn.handle_event(event)
+                dec_space_btn.handle_event(event)
                 buy_space_btn.handle_event(event)
 
         # update hover states for buttons
@@ -899,6 +981,8 @@ def main():
             chat_up_btn.update()
             chat_down_btn.update()
             next_day_btn.update()
+            inc_space_btn.update()
+            dec_space_btn.update()
             buy_space_btn.update()
 
         # Toast countdown
@@ -948,8 +1032,10 @@ def main():
                 btn_rect = pygame.Rect(0, 0, 100, 28)
                 btn_rect.center = (win_rect.centerx, label_y + 60)
                 def on_start():
-                    nonlocal player, shop, inv, shop_offset, inv_offset, cash_history, next_day_btn, buy_space_btn, up_shop_btn, down_shop_btn, up_inv_btn, down_inv_btn
+                    nonlocal player, shop, inv, shop_offset, inv_offset, cash_history
+                    nonlocal next_day_btn, buy_space_btn, up_shop_btn, down_shop_btn, up_inv_btn, down_inv_btn
                     nonlocal chat_messages, chat_offset, avg_buy_prices, chat_up_btn, chat_down_btn
+                    nonlocal inc_space_btn, dec_space_btn
                     try:
                         starting_cash = start_input.value_int()
                     except Exception:
@@ -978,14 +1064,21 @@ def main():
                     # create scroll buttons and action buttons
                     # positions depend on layout, will update during draw
                     next_day_btn = RetroButton(pygame.Rect(0,0,100,30), "Next Day", advance_day)
-                    buy_space_btn = RetroButton(pygame.Rect(0,0,100,30), "Buy Space", purchase_space)
-                    up_shop_btn = RetroButton(pygame.Rect(0,0,20,20), "▲", scroll_shop_up)
-                    down_shop_btn = RetroButton(pygame.Rect(0,0,20,20), "▼", scroll_shop_down)
-                    up_inv_btn = RetroButton(pygame.Rect(0,0,20,20), "▲", scroll_inv_up)
-                    down_inv_btn = RetroButton(pygame.Rect(0,0,20,20), "▼", scroll_inv_down)
+                    # Buttons to adjust storage capacity on Sundays.  They use
+                    # the increase_space and decrease_space callbacks defined
+                    # earlier.  These buttons will be positioned in the HUD
+                    # during drawing.
+                    inc_space_btn = RetroButton(pygame.Rect(0,0,100,30), "Increase", increase_space)
+                    dec_space_btn = RetroButton(pygame.Rect(0,0,100,30), "Decrease", decrease_space)
+                    # Retain buy_space_btn for backward compatibility but keep it hidden.
+                    buy_space_btn = RetroButton(pygame.Rect(0,0,100,30), "Change", purchase_space)
+                    up_shop_btn = RetroButton(pygame.Rect(0,0,20,20), "^", scroll_shop_up)
+                    down_shop_btn = RetroButton(pygame.Rect(0,0,20,20), "v", scroll_shop_down)
+                    up_inv_btn = RetroButton(pygame.Rect(0,0,20,20), "^", scroll_inv_up)
+                    down_inv_btn = RetroButton(pygame.Rect(0,0,20,20), "v", scroll_inv_down)
                     # chat scroll buttons
-                    chat_up_btn = RetroButton(pygame.Rect(0,0,20,20), "▲", scroll_chat_up)
-                    chat_down_btn = RetroButton(pygame.Rect(0,0,20,20), "▼", scroll_chat_down)
+                    chat_up_btn = RetroButton(pygame.Rect(0,0,20,20), "^", scroll_chat_up)
+                    chat_down_btn = RetroButton(pygame.Rect(0,0,20,20), "v", scroll_chat_down)
                     # update table widgets now that inv/shop exist
                     update_table_widgets()
                     # switch to market mode
@@ -1020,7 +1113,12 @@ def main():
             # Fill HUD background
             pygame.draw.rect(screen, COLOR_WINDOW, hud_rect)
             # Draw HUD text
-            day_surf = font_medium.render(f"Day {player['day']}", True, COLOR_CONTROL_TEXT)
+            # Compute the day of the week based on the game's calendar.  The first
+            # day (1) is Monday, so subtract 1 before modulo.  Use the
+            # predefined DAY_NAMES list to look up the name.
+            dow = (player['day'] - 1) % BILL_INTERVAL
+            day_label = f"Day {player['day']}, {DAY_NAMES[dow]}"
+            day_surf = font_medium.render(day_label, True, COLOR_CONTROL_TEXT)
             cash_surf = font_medium.render(f"Cash: ${player['cash']:.2f}", True, COLOR_CONTROL_TEXT)
             storage_surf = font_medium.render(f"Storage: {inv_used_units(inv)}/{player['capacity']}", True, COLOR_CONTROL_TEXT)
             net_worth = player["cash"] + sum((shop[sku]["buy_price"]*SPREAD) * inv[sku]["qty"] for sku in inv.keys())
@@ -1029,15 +1127,16 @@ def main():
             screen.blit(cash_surf, (hud_rect.x + 8, hud_rect.y + 28))
             screen.blit(storage_surf, (hud_rect.x + 180, hud_rect.y + 6))
             screen.blit(net_surf, (hud_rect.x + 180, hud_rect.y + 28))
-            # Position action buttons next to HUD
+            # Position action buttons next to HUD.  The "Next Day" button
+            # sits on the top row.  Below it are the Increase/Decrease
+            # storage buttons.  These buttons will operate only on Sundays.
             next_day_btn.rect.topleft = (hud_rect.right - 220, hud_rect.y + 4)
-            buy_space_btn.rect.topleft = (hud_rect.right - 220, hud_rect.y + 28)
+            inc_space_btn.rect.topleft = (hud_rect.right - 220, hud_rect.y + 28)
+            dec_space_btn.rect.topleft = (hud_rect.right - 110, hud_rect.y + 28)
+            # Draw the buttons
             next_day_btn.draw(screen, font_small)
-            buy_space_btn.draw(screen, font_small)
-            # Display cost under buy space button
-            cost = capacity_upgrade_cost(player)
-            cost_surf = font_small.render(f"(${cost})", True, COLOR_CONTROL_TEXT)
-            screen.blit(cost_surf, (buy_space_btn.rect.x + buy_space_btn.rect.width + 4, buy_space_btn.rect.y + 8))
+            inc_space_btn.draw(screen, font_small)
+            dec_space_btn.draw(screen, font_small)
             # Table positions
             left_table_x = app_rect.x + 6
             right_table_x = left_table_x + TABLE_WIDTH + SPACING
@@ -1055,8 +1154,8 @@ def main():
             # Scroll buttons for shop
             up_shop_btn.rect = pygame.Rect(shop_panel.right - 24, shop_panel.y + HEADER_HEIGHT + 2, 20, SCROLL_BUTTON_HEIGHT)
             down_shop_btn.rect = pygame.Rect(shop_panel.right - 24, shop_panel.bottom - SCROLL_BUTTON_HEIGHT - 2, 20, SCROLL_BUTTON_HEIGHT)
-            up_shop_btn.label = "▲"
-            down_shop_btn.label = "▼"
+            up_shop_btn.label = "^"
+            down_shop_btn.label = "v"
             up_shop_btn.draw(screen, font_small)
             down_shop_btn.draw(screen, font_small)
             # Draw column header row for shop
@@ -1097,19 +1196,19 @@ def main():
                     desc_text = item["description"]
                     desc_surf = font_small.render(desc_text[:25], True, COLOR_CONTROL_TEXT)
                     screen.blit(desc_surf, (x_pos + 2, row_y + 6))
-                    x_pos += SHOP_COL_WIDTHS[2]
-                    # column 3: qty available
-                    qty_surf = font_small.render(str(s["qty"]), True, COLOR_CONTROL_TEXT)
-                    screen.blit(qty_surf, (x_pos + 2, row_y + 6))
+                    x_pos += SHOP_COL_WIDTHS[2]                    
+                    # column 3: average buy price
+                    avg_val = avg_buy_prices.get(sku, s["buy_price"])
+                    avg_surf = font_small.render(f"${avg_val:.2f}", True, COLOR_CONTROL_TEXT)
+                    screen.blit(avg_surf, (x_pos + 2, row_y + 6))
                     x_pos += SHOP_COL_WIDTHS[3]
                     # column 4: current price
                     price_surf = font_small.render(f"${s['buy_price']:.2f}", True, COLOR_CONTROL_TEXT)
                     screen.blit(price_surf, (x_pos + 2, row_y + 6))
                     x_pos += SHOP_COL_WIDTHS[4]
-                    # column 5: average buy price
-                    avg_val = avg_buy_prices.get(sku, s["buy_price"])
-                    avg_surf = font_small.render(f"${avg_val:.2f}", True, COLOR_CONTROL_TEXT)
-                    screen.blit(avg_surf, (x_pos + 2, row_y + 6))
+                    # column 5: qty available
+                    qty_surf = font_small.render(str(s["qty"]), True, COLOR_CONTROL_TEXT)
+                    screen.blit(qty_surf, (x_pos + 2, row_y + 6))
                     x_pos += SHOP_COL_WIDTHS[5]
                     # column 6: input box for qty to buy
                     shop_inputs[i].rect.topleft = (x_pos + 2, row_y + 3)
@@ -1138,8 +1237,8 @@ def main():
             # Scroll buttons for inventory
             up_inv_btn.rect = pygame.Rect(inv_panel.right - 24, inv_panel.y + HEADER_HEIGHT + 2, 20, SCROLL_BUTTON_HEIGHT)
             down_inv_btn.rect = pygame.Rect(inv_panel.right - 24, inv_panel.bottom - SCROLL_BUTTON_HEIGHT - 2, 20, SCROLL_BUTTON_HEIGHT)
-            up_inv_btn.label = "▲"
-            down_inv_btn.label = "▼"
+            up_inv_btn.label = "^"
+            down_inv_btn.label = "v"
             up_inv_btn.draw(screen, font_small)
             down_inv_btn.draw(screen, font_small)
             # Column header row for inventory
@@ -1180,15 +1279,15 @@ def main():
                     avg_surf = font_small.render(f"${iv['avg_cost']:.2f}", True, COLOR_CONTROL_TEXT)
                     screen.blit(avg_surf, (x_pos + 2, row_y + 6))
                     x_pos += INV_COL_WIDTHS[3]
-                    # column 4: quantity on hand
-                    qty_surf = font_small.render(str(iv["qty"]), True, COLOR_CONTROL_TEXT)
-                    screen.blit(qty_surf, (x_pos + 2, row_y + 6))
-                    x_pos += INV_COL_WIDTHS[4]
-                    # column 5: sell price
+                    # column 4: sell price
                     sell_price = shop[sku]["buy_price"] * SPREAD
                     sell_surf = font_small.render(f"${sell_price:.2f}", True, COLOR_CONTROL_TEXT)
                     screen.blit(sell_surf, (x_pos + 2, row_y + 6))
-                    x_pos += INV_COL_WIDTHS[5]
+                    x_pos += INV_COL_WIDTHS[4]
+                    # column 5: quantity on hand
+                    qty_surf = font_small.render(str(iv["qty"]), True, COLOR_CONTROL_TEXT)
+                    screen.blit(qty_surf, (x_pos + 2, row_y + 6))
+                    x_pos += INV_COL_WIDTHS[5]                    
                     # column 6: input
                     inv_inputs[i].rect.topleft = (x_pos + 2, row_y + 3)
                     inv_inputs[i].rect.size = (INV_COL_WIDTHS[6] - 4, ROW_HEIGHT - 6)
@@ -1204,69 +1303,125 @@ def main():
                     inv_inputs[i].rect.size = (0,0)
                     inv_buttons[i].rect.topleft = (inv_panel.x, inv_panel.y)
                     inv_buttons[i].rect.size = (0,0)
-            # Draw chat/terminal area under tables.  This area includes a small
-            # graph of cash history and a command-line style message log.
-            chat_x = app_rect.x + 4
-            chat_y = table_top_y + TABLE_HEIGHT + 10
-            chat_width = app_rect.width - 8
-            chat_rect = pygame.Rect(chat_x, chat_y, chat_width, CHAT_HEIGHT)
-            # background and border
-            pygame.draw.rect(screen, COLOR_CHAT_BACKGROUND, chat_rect)
-            pygame.draw.rect(screen, COLOR_WINDOW_BORDER_DARK, chat_rect, 1)
-            # draw title bar for chat area
-            chat_title_rect = pygame.Rect(chat_rect.x, chat_rect.y, chat_rect.width, 20)
-            pygame.draw.rect(screen, COLOR_TABLE_HEADER, chat_title_rect)
-            chat_label = font_medium.render("Messages", True, COLOR_TABLE_HEADER_TEXT)
-            screen.blit(chat_label, (chat_title_rect.x + 4, chat_title_rect.y + (20 - chat_label.get_height())//2))
-            # cash history graph area
-            graph_area_y = chat_title_rect.bottom
-            graph_area = pygame.Rect(chat_rect.x + 1, graph_area_y, chat_rect.width - 2, GRAPH_HEIGHT)
-            # fill with a neutral colour (light grey) to contrast with chat background
+
+            PANEL_PAD = 6
+            HEADER_H = 20
+            BTN_H = 16
+            BTN_W = 20
+            BTN_PAD = 2
+
+            panel_x = app_rect.x + 4
+            panel_width = app_rect.width - 8
+
+            # Top of the lower UI region (under tables)
+            lower_top_y = table_top_y + TABLE_HEIGHT + 10
+
+            #GRAPH PANEL
+            graph_panel_h = HEADER_H + GRAPH_HEIGHT + 2  # header + graph + a tiny pad
+            graph_rect = pygame.Rect(panel_x, lower_top_y, panel_width, graph_panel_h)
+
+            pygame.draw.rect(screen, COLOR_CHAT_BACKGROUND, graph_rect)
+            pygame.draw.rect(screen, COLOR_WINDOW_BORDER_DARK, graph_rect, 1)
+
+            graph_header = pygame.Rect(graph_rect.x, graph_rect.y, graph_rect.width, HEADER_H)
+            pygame.draw.rect(screen, COLOR_TABLE_HEADER, graph_header)
+            graph_label = font_medium.render("Cash Total by Day", True, COLOR_TABLE_HEADER_TEXT)
+            screen.blit(
+                graph_label,
+                (graph_header.x + 4, graph_header.y + (HEADER_H - graph_label.get_height()) // 2),
+            )
+
+            # graph drawing area (inside graph panel)
+            graph_area = pygame.Rect(
+                graph_rect.x + 1,
+                graph_header.bottom,
+                graph_rect.width - 2,
+                graph_rect.height - HEADER_H - 1
+            )
             pygame.draw.rect(screen, COLOR_WINDOW, graph_area)
             pygame.draw.rect(screen, COLOR_WINDOW_BORDER_DARK, graph_area, 1)
+
             # Draw cash history line graph
             if len(cash_history) > 1:
-                # compute ranges
                 min_cash = min(val for _, val in cash_history)
                 max_cash = max(val for _, val in cash_history)
                 if min_cash == max_cash:
-                    max_cash = min_cash + 1
-                # determine horizontal positions based on number of days
+                    max_cash += 1
+
                 total_points = len(cash_history)
-                # leave padding
-                px0 = graph_area.x + 4
+
+                # padding inside graph
+                px0 = graph_area.x + 28   # leave room for Y labels
                 py0 = graph_area.y + 4
-                gw = graph_area.width - 8
-                gh = graph_area.height - 8
+                gw = graph_area.width - 32
+                gh = graph_area.height - 20  # leave room for X labels
+
+                # --- Y axis min / max ---
+                min_label = font_small.render(str(int(min_cash)), True, COLOR_GRAPH_LINE)
+                max_label = font_small.render(str(int(max_cash)), True, COLOR_GRAPH_LINE)
+
+                screen.blit(min_label, (graph_area.x + 2, py0 + gh - min_label.get_height() // 2))
+                screen.blit(max_label, (graph_area.x + 2, py0 - max_label.get_height() // 2))
+
+                # --- X axis min / max ---
+                min_day = str(cash_history[0][0])
+                max_day = str(cash_history[-1][0])
+
+                min_day_surf = font_small.render(min_day, True, COLOR_GRAPH_LINE)
+                max_day_surf = font_small.render(max_day, True, COLOR_GRAPH_LINE)
+
+                screen.blit(min_day_surf, (px0, py0 + gh + 2))
+                screen.blit(max_day_surf, (px0 + gw - max_day_surf.get_width(), py0 + gh + 2))
+
+                # --- line graph ---
                 prev_point = None
-                for idx, (d, cash_val) in enumerate(cash_history):
-                    x_frac = idx / (total_points - 1) if total_points > 1 else 0
+                for idx, (_, cash_val) in enumerate(cash_history):
+                    x_frac = idx / (total_points - 1)
                     y_frac = (cash_val - min_cash) / (max_cash - min_cash)
+
                     px = int(px0 + gw * x_frac)
                     py = int(py0 + gh * (1 - y_frac))
+
                     if prev_point:
                         pygame.draw.line(screen, COLOR_GRAPH_LINE, prev_point, (px, py), 2)
                     prev_point = (px, py)
-            # message area
-            msg_area_y = graph_area.bottom
-            # leave some padding above messages
-            msg_area_y += 2
-            msg_area_height = chat_rect.bottom - 18 - msg_area_y  # 18 reserved for scroll button area
-            # scroll buttons for chat
-            chat_up_btn.rect = pygame.Rect(chat_rect.right - 24, chat_rect.y + 2, 20, 16)
-            chat_down_btn.rect = pygame.Rect(chat_rect.right - 24, chat_rect.bottom - 18, 20, 16)
-            chat_up_btn.label = "▲"
-            chat_down_btn.label = "▼"
+
+            # CHAT PANEL BELOW graph panel
+            chat_y = graph_rect.bottom + PANEL_PAD
+            chat_rect = pygame.Rect(panel_x, chat_y, panel_width, CHAT_HEIGHT)
+
+            pygame.draw.rect(screen, COLOR_CHAT_BACKGROUND, chat_rect)
+            pygame.draw.rect(screen, COLOR_WINDOW_BORDER_DARK, chat_rect, 1)
+
+            chat_header = pygame.Rect(chat_rect.x, chat_rect.y, chat_rect.width, HEADER_H)
+            pygame.draw.rect(screen, COLOR_TABLE_HEADER, chat_header)
+            chat_label = font_medium.render("Messages", True, COLOR_TABLE_HEADER_TEXT)
+            screen.blit(
+                chat_label,
+                (chat_header.x + 4, chat_header.y + (HEADER_H - chat_label.get_height()) // 2),
+            )
+
+            # message area inside chat panel
+            msg_area_y = chat_header.bottom + 2
+            msg_area_bottom = chat_rect.bottom - (BTN_H + BTN_PAD)  # leave room for bottom button strip
+            msg_area_height = max(1, msg_area_bottom - msg_area_y)
+
+            # scroll buttons ONLY for chat (top + bottom inside chat panel)
+            chat_up_btn.rect = pygame.Rect(chat_rect.right - (BTN_W + 4), chat_rect.y + BTN_PAD, BTN_W, BTN_H)
+            chat_down_btn.rect = pygame.Rect(chat_rect.right - (BTN_W + 4), chat_rect.bottom - (BTN_H + BTN_PAD), BTN_W, BTN_H)
+            chat_up_btn.label = "^"
+            chat_down_btn.label = "v"
             chat_up_btn.draw(screen, font_small)
             chat_down_btn.draw(screen, font_small)
-            # compute visible lines count in message area
+
+            # draw visible lines
             lines_visible = max(1, msg_area_height // CHAT_LINE_HEIGHT)
             start_idx = chat_offset
             end_idx = start_idx + lines_visible
+
             for i, msg in enumerate(chat_messages[start_idx:end_idx]):
                 y_pos = msg_area_y + i * CHAT_LINE_HEIGHT
-                # ensure we don't draw outside chat rect
-                if y_pos + CHAT_LINE_HEIGHT <= chat_rect.bottom - 18:
+                if y_pos + CHAT_LINE_HEIGHT <= msg_area_bottom:
                     msg_surf = font_small.render(msg, True, COLOR_CHAT_TEXT)
                     screen.blit(msg_surf, (chat_rect.x + 4, y_pos))
 
