@@ -390,6 +390,105 @@ def load_latest_weekly_report():
     return rows[-1]
 
 
+def load_weekly_reports_typed():
+    """Load weekly reports with basic type normalization and sorted by week."""
+    rows = read_csv_dicts(WEEKLY_REPORT_CSV)
+    typed = []
+    for r in rows:
+        rr = dict(r)
+        try:
+            rr["week"] = int(float(rr.get("week", 0) or 0))
+        except Exception:
+            rr["week"] = 0
+        # floats
+        for k in [
+            "rent_cost",
+            "bought_total",
+            "sold_total",
+            "weekly_profit",
+            "cash_total",
+            "net_worth",
+            "storage_utilization",
+        ]:
+            try:
+                rr[k] = float(rr.get(k, 0) or 0)
+            except Exception:
+                rr[k] = 0.0
+        # ints
+        for k in [
+            "bought_qty",
+            "bought_lines",
+            "sold_qty",
+            "sold_lines",
+            "storage_used",
+            "storage_capacity",
+        ]:
+            try:
+                rr[k] = int(float(rr.get(k, 0) or 0))
+            except Exception:
+                rr[k] = 0
+        rr["note"] = str(rr.get("note", "") or "")
+        typed.append(rr)
+    typed.sort(key=lambda x: x.get("week", 0))
+    return typed
+
+
+def get_report_by_week(rows, week: int):
+    for r in rows:
+        if int(r.get("week", 0) or 0) == int(week):
+            return r
+    return None
+
+
+def compute_dynamic_notes(report_row: dict):
+    """Return comma-separated recommendations based on a weekly report row."""
+    if not report_row:
+        return ""
+
+    notes = []
+
+    profit = float(report_row.get("weekly_profit", 0) or 0)
+    sold_total = float(report_row.get("sold_total", 0) or 0)
+    bought_total = float(report_row.get("bought_total", 0) or 0)
+    sold_lines = int(report_row.get("sold_lines", 0) or 0)
+    bought_lines = int(report_row.get("bought_lines", 0) or 0)
+    rent_cost = float(report_row.get("rent_cost", 0) or 0)
+    util = float(report_row.get("storage_utilization", 0) or 0)
+    cap = int(report_row.get("storage_capacity", 0) or 0)
+
+    # Profit / revenue guidance
+    if profit < 0:
+        notes.append("Profit negative—sell more or reduce rent")
+    elif profit > 0 and sold_lines > 0:
+        notes.append("Good profit—consider scaling what sold")
+
+    # Activity guidance
+    if sold_lines == 0 and bought_lines > 0:
+        notes.append("No sales—try selling before buying more")
+    if bought_total > sold_total and sold_lines > 0:
+        notes.append("Spend > revenue—slow purchases or increase sales")
+
+    # Rent & storage guidance
+    if cap > 0 and rent_cost > 0 and sold_total <= rent_cost:
+        notes.append("Rent is heavy—aim for weekly sales above rent")
+    if util >= 0.90:
+        notes.append("Storage nearly full—consider increasing capacity Sunday")
+    if util <= 0.20 and cap > DEFAULT_CAPACITY:
+        notes.append("Low storage usage—consider decreasing capacity to cut rent")
+
+    if not notes:
+        notes.append("Keep an eye on profit vs rent—storage is your weekly overhead")
+
+    # De-dup while keeping order
+    seen = set()
+    out = []
+    for n in notes:
+        if n not in seen:
+            seen.add(n)
+            out.append(n)
+    return ", ".join(out)
+
+
 def weekly_report_exists(week: int) -> bool:
     rows = read_csv_dicts(WEEKLY_REPORT_CSV)
     for r in rows:
@@ -761,6 +860,10 @@ def main():
     buy_space_btn = None
     inc_space_btn = None
     dec_space_btn = None
+    # Weekly report navigation
+    report_prev_btn = None
+    report_next_btn = None
+    selected_report_week = 1
     # Chat scroll buttons
     chat_up_btn = None
     chat_down_btn = None
@@ -974,6 +1077,7 @@ def main():
 
     def advance_day():
         """Advance the day, update prices and averages, pay bills and generate tips."""
+        nonlocal app_tab, selected_report_week
         # progress the game day and handle bills
         bill_msg = next_day(items, shop, player)
 
@@ -981,8 +1085,8 @@ def main():
         # auto-switch to the Weekly Report tab.
         if is_sunday(player["day"]):
             generate_weekly_report_row(player, inv, shop, week_number(player["day"]))
-            nonlocal app_tab
             app_tab = "weekly"
+            selected_report_week = week_number(player["day"])
         # update cash history
         cash_history.append((player["day"], player["cash"]))
         # Update running average buy prices per SKU (including today's price)
@@ -1089,6 +1193,8 @@ def main():
                     # Weekly report tab: storage change buttons live here
                     inc_space_btn.handle_event(event)
                     dec_space_btn.handle_event(event)
+                    report_prev_btn.handle_event(event)
+                    report_next_btn.handle_event(event)
 
                 # chat scroll buttons (visible on both tabs)
                 chat_up_btn.handle_event(event)
@@ -1115,6 +1221,8 @@ def main():
             else:
                 inc_space_btn.update()
                 dec_space_btn.update()
+                report_prev_btn.update()
+                report_next_btn.update()
             # update chat scroll buttons
             buy_space_btn.update()
 
@@ -1168,6 +1276,7 @@ def main():
                     nonlocal player, shop, inv, shop_offset, inv_offset, cash_history
                     nonlocal next_day_btn, tab_market_btn, tab_weekly_btn
                     nonlocal buy_space_btn, inc_space_btn, dec_space_btn
+                    nonlocal report_prev_btn, report_next_btn, selected_report_week
                     nonlocal up_shop_btn, down_shop_btn, up_inv_btn, down_inv_btn
                     nonlocal app_tab
                     nonlocal chat_messages, chat_offset, avg_buy_prices, chat_up_btn, chat_down_btn
@@ -1214,6 +1323,30 @@ def main():
                     inc_space_btn = RetroButton(pygame.Rect(0,0,100,30), "Increase", increase_space)
                     dec_space_btn = RetroButton(pygame.Rect(0,0,100,30), "Decrease", decrease_space)
 
+                    # Weekly report navigation (prev/next week)
+                    def report_prev():
+                        nonlocal selected_report_week
+                        rows = load_weekly_reports_typed()
+                        if not rows:
+                            return
+                        min_w = rows[0]["week"]
+                        selected_report_week = max(min_w, selected_report_week - 1)
+
+                    def report_next():
+                        nonlocal selected_report_week
+                        rows = load_weekly_reports_typed()
+                        if not rows:
+                            return
+                        max_w = rows[-1]["week"]
+                        selected_report_week = min(max_w, selected_report_week + 1)
+
+                    report_prev_btn = RetroButton(pygame.Rect(0,0,26,22), "<", report_prev)
+                    report_next_btn = RetroButton(pygame.Rect(0,0,26,22), ">", report_next)
+
+                    # Default selected report week = latest (if any)
+                    rows = load_weekly_reports_typed()
+                    selected_report_week = rows[-1]["week"] if rows else 1
+
                     # Retain buy_space_btn for backward compatibility (hidden)
                     buy_space_btn = RetroButton(pygame.Rect(0,0,100,30), "Change", purchase_space)
                     up_shop_btn = RetroButton(pygame.Rect(0,0,20,20), "^", scroll_shop_up)
@@ -1225,6 +1358,13 @@ def main():
                     chat_down_btn = RetroButton(pygame.Rect(0,0,20,20), "v", scroll_chat_down)
                     # update table widgets now that inv/shop exist
                     update_table_widgets()
+
+                    # Weekly report navigation defaults to latest available week (or current week)
+                    reports = load_weekly_reports_typed()
+                    if reports:
+                        selected_report_week = int(reports[-1].get("week", 1) or 1)
+                    else:
+                        selected_report_week = week_number(player["day"])
                     # switch to market mode
                     nonlocal mode
                     mode = "market"
@@ -1466,90 +1606,140 @@ def main():
                 rep_title = font_medium.render("Weekly Store Report", True, COLOR_TABLE_HEADER_TEXT)
                 screen.blit(rep_title, (rep_header.x + 6, rep_header.y + (HEADER_HEIGHT - rep_title.get_height())//2))
 
-                # Load latest report (generated on Sundays)
-                rep = load_latest_weekly_report()
+                # Load reports and show the selected week
+                reports = load_weekly_reports_typed()
+                if reports:
+                    # Clamp selected week to available range
+                    selected_report_week = max(reports[0]["week"], min(reports[-1]["week"], selected_report_week))
+                    rep = get_report_by_week(reports, selected_report_week) or reports[-1]
+                else:
+                    rep = None
 
                 text_x_l = report_panel.x + 18
                 text_x_r = report_panel.x + report_panel.width // 2 + 40
-                y = rep_header.bottom + 18
-                line_h = 28
+                y_top = rep_header.bottom + 18
+                line_h = 26
 
                 if not rep:
+                    report_prev_btn.visible = False
+                    report_next_btn.visible = False
                     msg = "No weekly report yet. A report is created each Sunday."
-                    screen.blit(font_medium.render(msg, True, COLOR_CONTROL_TEXT), (text_x_l, y))
+                    screen.blit(font_medium.render(msg, True, COLOR_CONTROL_TEXT), (text_x_l, y_top))
                 else:
-                    # Helpers for typed values
-                    def f(key, default=0.0):
-                        try:
-                            return float(rep.get(key, default) or default)
-                        except Exception:
-                            return float(default)
-                    def s(key, default=""):
-                        return str(rep.get(key, default) or default)
+                    week = int(rep.get("week", 0) or 0)
+                    rent_cost = float(rep.get("rent_cost", 0) or 0)
+                    bought_total = float(rep.get("bought_total", 0) or 0)
+                    bought_qty = int(rep.get("bought_qty", 0) or 0)
+                    bought_lines = int(rep.get("bought_lines", 0) or 0)
+                    sold_total = float(rep.get("sold_total", 0) or 0)
+                    sold_qty = int(rep.get("sold_qty", 0) or 0)
+                    sold_lines = int(rep.get("sold_lines", 0) or 0)
+                    weekly_profit = float(rep.get("weekly_profit", 0) or 0)
+                    cash_total = float(rep.get("cash_total", 0) or 0)
+                    net_worth_v = float(rep.get("net_worth", 0) or 0)
+                    storage_used = int(rep.get("storage_used", 0) or 0)
+                    storage_cap = max(1, int(rep.get("storage_capacity", 1) or 1))
+                    storage_util = float(rep.get("storage_utilization", 0) or 0)
 
-                    week = int(float(s("week", "0") or 0))
-                    rent_cost = f("rent_cost")
-                    bought_total = f("bought_total")
-                    bought_qty = int(float(s("bought_qty", "0") or 0))
-                    bought_lines = int(float(s("bought_lines", "0") or 0))
-                    sold_total = f("sold_total")
-                    sold_qty = int(float(s("sold_qty", "0") or 0))
-                    sold_lines = int(float(s("sold_lines", "0") or 0))
-                    weekly_profit = f("weekly_profit")
-                    cash_total = f("cash_total")
-                    net_worth_v = f("net_worth")
-                    storage_used = int(float(s("storage_used", "0") or 0))
-                    storage_cap = int(float(s("storage_capacity", "1") or 1))
-                    storage_util = 0.0
-                    try:
-                        storage_util = float(s("storage_utilization", "0") or 0)
-                    except Exception:
-                        storage_util = 0.0
-                    note = s("note", "")
+                    # Dynamic note (comma-separated)
+                    note = compute_dynamic_notes(rep)
 
-                    # Title-ish center text (notepad vibe)
-                    center_title = font_large.render(f"WEEK {week} STORE REPORT", True, COLOR_CONTROL_TEXT)
-                    screen.blit(center_title, (report_panel.centerx - center_title.get_width()//2, y))
-                    y += line_h
-                    underline = font_medium.render("_" * 28, True, COLOR_CONTROL_TEXT)
-                    screen.blit(underline, (report_panel.centerx - underline.get_width()//2, y - 8))
-                    y += line_h
+                    # Title + navigation arrows
+                    title_txt = f"WEEK {week} STORE REPORT"
+                    center_title = font_large.render(title_txt, True, COLOR_CONTROL_TEXT)
+                    title_x = report_panel.centerx - center_title.get_width() // 2
+                    title_y = y_top
+                    screen.blit(center_title, (title_x, title_y))
 
-                    # Left column
-                    screen.blit(font_medium.render(f"Week:  {week}", True, COLOR_CONTROL_TEXT), (text_x_l, y)); y += line_h
-                    screen.blit(font_medium.render("Rent Cost:", True, COLOR_CONTROL_TEXT), (text_x_l, y))
-                    rent_surf = font_medium.render(f"${rent_cost:.0f}", True, (140, 0, 0))
-                    screen.blit(rent_surf, (text_x_l + 140, y)); y += line_h
+                    # Position arrows around the title
+                    # Hide arrows if only 1 report exists
+                    if len(reports) <= 1:
+                        report_prev_btn.visible = False
+                        report_next_btn.visible = False
+                    else:
+                        report_prev_btn.visible = True
+                        report_next_btn.visible = True
+                        gap = 12
+                        report_prev_btn.rect.topleft = (
+                            title_x - gap - report_prev_btn.rect.width,
+                            title_y + 2,
+                        )
+                        report_next_btn.rect.topleft = (
+                            title_x + center_title.get_width() + gap,
+                            title_y + 2,
+                        )
+                        # Disable at ends
+                        report_prev_btn.visible = (selected_report_week > reports[0]["week"])
+                        report_next_btn.visible = (selected_report_week < reports[-1]["week"])
+                        report_prev_btn.draw(screen, font_small)
+                        report_next_btn.draw(screen, font_small)
 
-                    screen.blit(font_medium.render("Bought $:", True, COLOR_CONTROL_TEXT), (text_x_l, y))
-                    bought_surf = font_medium.render(f"${bought_total:.0f}", True, (140, 0, 0))
-                    screen.blit(bought_surf, (text_x_l + 140, y)); y += line_h
-                    screen.blit(font_medium.render(f"Bought Qty:  {bought_qty}", True, COLOR_CONTROL_TEXT), (text_x_l, y)); y += line_h
-                    screen.blit(font_medium.render(f"Bought Lines: {bought_lines}", True, COLOR_CONTROL_TEXT), (text_x_l, y)); y += line_h
+                    underline = font_medium.render("_" * 30, True, COLOR_CONTROL_TEXT)
+                    screen.blit(underline, (report_panel.centerx - underline.get_width() // 2, title_y + 24))
 
-                    screen.blit(font_medium.render("Sold $:", True, COLOR_CONTROL_TEXT), (text_x_l, y))
-                    sold_surf = font_medium.render(f"${sold_total:.0f}", True, (0, 110, 0))
-                    screen.blit(sold_surf, (text_x_l + 140, y)); y += line_h
-                    screen.blit(font_medium.render(f"Sold Qty:   {sold_qty}", True, COLOR_CONTROL_TEXT), (text_x_l, y)); y += line_h
-                    screen.blit(font_medium.render(f"Sold Lines: {sold_lines}", True, COLOR_CONTROL_TEXT), (text_x_l, y)); y += line_h
+                    # Small helpers
+                    red = (140, 0, 0)
+                    green = (0, 110, 0)
 
-                    # Weekly profit with sign colour
-                    screen.blit(font_medium.render("Weekly Profit:", True, COLOR_CONTROL_TEXT), (text_x_l, y))
-                    profit_col = (0, 110, 0) if weekly_profit >= 0 else (140, 0, 0)
-                    profit_surf = font_medium.render(f"${weekly_profit:.0f}", True, profit_col)
-                    screen.blit(profit_surf, (text_x_l + 170, y)); y += line_h
+                    def money(v):
+                        return f"${v:,.2f}" if abs(v) >= 1 else f"${v:.2f}"
 
-                    # Right column
-                    y_r = rep_header.bottom + 18 + (line_h * 3)
-                    screen.blit(font_medium.render(f"Cash Total: ${cash_total:.2f}", True, COLOR_CONTROL_TEXT), (text_x_r, y_r)); y_r += line_h
-                    screen.blit(font_medium.render(f"Net Worth: ${net_worth_v:.2f}", True, COLOR_CONTROL_TEXT), (text_x_r, y_r)); y_r += line_h
+                    def draw_heading(txt, x, y):
+                        surf = font_medium.render(txt, True, COLOR_CONTROL_TEXT)
+                        screen.blit(surf, (x, y))
+
+                    def draw_kv(label, value, x, y, vcol=COLOR_CONTROL_TEXT):
+                        screen.blit(font_medium.render(label + ":", True, COLOR_CONTROL_TEXT), (x, y))
+                        screen.blit(font_medium.render(value, True, vcol), (x + 170, y))
+
+                    # Layout blocks (Cost / Sales / Results)
+                    y0 = title_y + 60
+                    x1 = text_x_l
+                    x2 = text_x_r
+
+                    # COSTS
+                    draw_heading("COSTS", x1, y0)
+                    draw_kv("Rent", money(rent_cost), x1, y0 + line_h, red)
+                    draw_kv("Bought", money(bought_total), x1, y0 + line_h * 2, red)
+                    draw_kv("Bought Qty", str(bought_qty), x1, y0 + line_h * 3)
+                    draw_kv("Bought Lines", str(bought_lines), x1, y0 + line_h * 4)
+
+                    # SALES
+                    y_sales = y0 + line_h * 6
+                    draw_heading("SALES", x1, y_sales)
+                    draw_kv("Sold", money(sold_total), x1, y_sales + line_h, green)
+                    draw_kv("Sold Qty", str(sold_qty), x1, y_sales + line_h * 2)
+                    draw_kv("Sold Lines", str(sold_lines), x1, y_sales + line_h * 3)
+
+                    # RESULTS
+                    draw_heading("RESULTS", x2, y0)
+                    pcol = green if weekly_profit >= 0 else red
+                    draw_kv("Weekly Profit", money(weekly_profit), x2, y0 + line_h, pcol)
+                    draw_kv("Cash Total", money(cash_total), x2, y0 + line_h * 2)
+                    draw_kv("Net Worth", money(net_worth_v), x2, y0 + line_h * 3)
                     util_pct = int(storage_util * 100)
-                    screen.blit(font_medium.render(f"Storage Utilization: {util_pct}% ({storage_used}/{storage_cap})", True, COLOR_CONTROL_TEXT), (text_x_r, y_r)); y_r += line_h
+                    draw_kv("Storage", f"{util_pct}% ({storage_used}/{storage_cap})", x2, y0 + line_h * 4)
 
-                    if note:
-                        note_y = report_panel.bottom - 60
-                        screen.blit(font_medium.render("Note:", True, COLOR_CONTROL_TEXT), (text_x_l, note_y))
-                        screen.blit(font_medium.render(note[:80], True, COLOR_CONTROL_TEXT), (text_x_l + 70, note_y))
+                    # NOTES
+                    note_y = report_panel.bottom - 70
+                    screen.blit(font_medium.render("Notes:", True, COLOR_CONTROL_TEXT), (text_x_l, note_y))
+                    # wrap notes to fit
+                    max_w = report_panel.width - 120
+                    words = (note or "").split(" ")
+                    lines = []
+                    cur = ""
+                    for w in words:
+                        test = (cur + " " + w).strip()
+                        if font_medium.size(test)[0] <= max_w:
+                            cur = test
+                        else:
+                            if cur:
+                                lines.append(cur)
+                            cur = w
+                    if cur:
+                        lines.append(cur)
+                    for li, line in enumerate(lines[:2]):
+                        screen.blit(font_medium.render(line, True, COLOR_CONTROL_TEXT), (text_x_l + 70, note_y + li * 22))
 
             PANEL_PAD = 6
             HEADER_H = 20
