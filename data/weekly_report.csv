@@ -1,0 +1,2 @@
+timestamp,week,rent_cost,bought_total,bought_qty,bought_lines,sold_total,sold_qty,sold_lines,weekly_profit,cash_total,net_worth,storage_used,storage_capacity,storage_utilization,note
+2025-12-23T23:05:41,1,5.00,0.00,0,0,0.00,0,0,-5.00,95.00,95.00,0,5,0.0000,"Consider expanding storage, aim to sell more than purchase cost"

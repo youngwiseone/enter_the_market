@@ -4,10 +4,64 @@ import random
 from datetime import datetime
 
 import pygame
-from style import *  # UI theme/layout constants live here
 
-
+# Import shared styling constants and market logic
+import style
+from style import *  # bring all constants into local namespace for backwards compatibility
 import market
+from market import week_number  # use shared week calculation
+
+# Override locally defined constants with values imported from style.  This ensures
+# that modifying style.py will propagate throughout the UI.  Without these
+# assignments the original hard‑coded values defined below would take
+# precedence.
+WIDTH, HEIGHT = style.WIDTH, style.HEIGHT
+FPS = style.FPS
+DEFAULT_STARTING_CASH = style.DEFAULT_STARTING_CASH
+DEFAULT_CAPACITY = style.DEFAULT_CAPACITY
+CAPACITY_STEP = style.CAPACITY_STEP
+VOLATILITY = style.VOLATILITY
+SPREAD = style.SPREAD
+RESTOCK_MIN, RESTOCK_MAX = style.RESTOCK_MIN, style.RESTOCK_MAX
+BILL_INTERVAL = style.BILL_INTERVAL
+COLOR_DESKTOP = style.COLOR_DESKTOP
+COLOR_WINDOW = style.COLOR_WINDOW
+COLOR_TITLE_BAR = style.COLOR_TITLE_BAR
+COLOR_TITLE_TEXT = style.COLOR_TITLE_TEXT
+COLOR_WINDOW_BORDER_LIGHT = style.COLOR_WINDOW_BORDER_LIGHT
+COLOR_WINDOW_BORDER_DARK = style.COLOR_WINDOW_BORDER_DARK
+COLOR_CONTROL_BACKGROUND = style.COLOR_CONTROL_BACKGROUND
+COLOR_CONTROL_BORDER_LIGHT = style.COLOR_CONTROL_BORDER_LIGHT
+COLOR_CONTROL_BORDER_DARK = style.COLOR_CONTROL_BORDER_DARK
+COLOR_CONTROL_TEXT = style.COLOR_CONTROL_TEXT
+COLOR_TABLE_HEADER = style.COLOR_TABLE_HEADER
+COLOR_TABLE_HEADER_TEXT = style.COLOR_TABLE_HEADER_TEXT
+COLOR_ROW_LIGHT = style.COLOR_ROW_LIGHT
+COLOR_ROW_DARK = style.COLOR_ROW_DARK
+COLOR_GRAPH_BACKGROUND = style.COLOR_GRAPH_BACKGROUND
+COLOR_GRAPH_LINE = style.COLOR_GRAPH_LINE
+COLOR_TOAST = style.COLOR_TOAST
+COLOR_CHAT_BACKGROUND = style.COLOR_CHAT_BACKGROUND
+COLOR_CHAT_TEXT = style.COLOR_CHAT_TEXT
+CHAT_LINE_HEIGHT = style.CHAT_LINE_HEIGHT
+MARGIN = style.MARGIN
+SPACING = style.SPACING
+TABLE_WIDTH = style.TABLE_WIDTH
+TABLE_HEIGHT = style.TABLE_HEIGHT
+REPORT_HEIGHT = style.REPORT_HEIGHT
+HEADER_HEIGHT = style.HEADER_HEIGHT
+SCROLL_BUTTON_HEIGHT = style.SCROLL_BUTTON_HEIGHT
+ROW_HEIGHT = style.ROW_HEIGHT
+VISIBLE_ROWS = style.VISIBLE_ROWS
+CHAT_HEIGHT = style.CHAT_HEIGHT
+HUD_HEIGHT = style.HUD_HEIGHT
+TITLE_BAR_HEIGHT = style.TITLE_BAR_HEIGHT
+GRAPH_HEIGHT = style.GRAPH_HEIGHT
+SHOP_COL_WIDTHS = style.SHOP_COL_WIDTHS
+INV_COL_WIDTHS = style.INV_COL_WIDTHS
+SHOP_HEADERS = style.SHOP_HEADERS
+INV_HEADERS = style.INV_HEADERS
+
 """
 retro_market.py
 ----------------
@@ -23,6 +77,8 @@ and a simple graph showing cash over days.  Data persists via CSV files.
 # Configuration and constants
 # -------------------------------------------------------------
 
+WIDTH, HEIGHT = 1200, 720
+FPS = 60
 
 DATA_DIR = "data"
 RES_DIR = "resources"
@@ -31,7 +87,10 @@ DEFAULT_STARTING_CASH = 100
 DEFAULT_CAPACITY = 5           # starting storage capacity (units)
 CAPACITY_STEP = 1              # change in storage capacity per adjustment
 
-# Price dynamics (moved to market.py)
+# Price dynamics
+VOLATILITY = 0.18              # daily price movement magnitude (relative)
+SPREAD = 0.90                  # player's sell price = shop buy price * SPREAD
+RESTOCK_MIN, RESTOCK_MAX = 0, 8  # new shop stock each day
 
 # Rent is paid weekly (every Sunday). Rent cost equals current storage capacity
 # (i.e. $1 per unit of space you can hold).
@@ -39,31 +98,65 @@ BILL_INTERVAL = 7
 
 # Retro colour palette
 # Classic Windows 95 greys and blues
+COLOR_DESKTOP = (192, 192, 192)
+COLOR_WINDOW = (212, 208, 200)
+COLOR_TITLE_BAR = (0, 0, 128)
+COLOR_TITLE_TEXT = (255, 255, 255)
+COLOR_WINDOW_BORDER_LIGHT = (255, 255, 255)
+COLOR_WINDOW_BORDER_DARK = (128, 128, 128)
+COLOR_CONTROL_BACKGROUND = (236, 236, 236)
+COLOR_CONTROL_BORDER_LIGHT = (255, 255, 255)
+COLOR_CONTROL_BORDER_DARK = (128, 128, 128)
+COLOR_CONTROL_TEXT = (0, 0, 0)
+COLOR_TABLE_HEADER = (0, 0, 128)
+COLOR_TABLE_HEADER_TEXT = (255, 255, 255)
+COLOR_ROW_LIGHT = (224, 224, 224)
+COLOR_ROW_DARK = (192, 192, 192)
+COLOR_GRAPH_BACKGROUND = (255, 255, 255)
+COLOR_GRAPH_LINE = (0, 0, 255)
+COLOR_TOAST = (200, 50, 50)
 
 # Chat colours (terminal style)
+COLOR_CHAT_BACKGROUND = (0, 0, 0)
+COLOR_CHAT_TEXT = (0, 255, 0)
 
 # Chat formatting
 CHAT_LINE_HEIGHT = 16  # pixel height per chat line
 
 # Layout constants
+MARGIN = 20
+SPACING = 10
+TABLE_WIDTH = (WIDTH - 2 * MARGIN - SPACING * 2) // 2
+TABLE_HEIGHT = 300
+REPORT_HEIGHT = 500
+HEADER_HEIGHT = 30
+SCROLL_BUTTON_HEIGHT = 20
+ROW_HEIGHT = 26
 # The number of rows visible in each table before scrolling.  We reserve space
 # for a column header row in addition to the coloured header bar and scroll
 # buttons.  The 20 pixels correspond to the column header row.
+VISIBLE_ROWS = (TABLE_HEIGHT - HEADER_HEIGHT - 20 - 2 * SCROLL_BUTTON_HEIGHT) // ROW_HEIGHT
 # Height of the chat area beneath the tables.  The graph from the earlier
 # version has been replaced with a chat/terminal area for messages and tips.
+CHAT_HEIGHT = 150
 HUD_HEIGHT = 50
 TITLE_BAR_HEIGHT = 30
 
 # Height of the cash history graph inside the chat area.  The chat area is
 # divided into a graph portion and a command-line/message portion.  Keep
 # GRAPH_HEIGHT relatively small so chat messages still have space.
+GRAPH_HEIGHT = 60
 
 # Column widths for tables (sum should fit within table width minus scroll bar)
 # Shop columns: image, sku, description, quantity, current price, average buy price,
 # input field, button.  Total width must be <= table_panel.width - scroll bar.
+SHOP_COL_WIDTHS = [24, 60, 140, 60, 70, 70, 50, 50]
 # Inventory columns: image, sku, description, avg cost, quantity, sell price,
 # input field, button.
+INV_COL_WIDTHS = [24, 60, 140, 60, 70, 70, 60, 50]
 #SHOP_HEADERS = ["Img", "SKU", "Description", "In Stock", "Price", "Avg_Price", "Qty", ""]
+SHOP_HEADERS = ["Img", "SKU", "Description", "Avg_Price", "Buy_price", "In Stock",  "Qty", ""]
+INV_HEADERS = ["Img", "SKU", "Description", "Avg_cost", "Sell_price", "SOH", "Qty", ""]
 
 # Day names (Day 1 = Monday)
 DAY_NAMES = [
@@ -82,6 +175,10 @@ SHOP_CSV = os.path.join(DATA_DIR, "shop.csv")
 INV_CSV = os.path.join(DATA_DIR, "inventory.csv")
 TXN_CSV = os.path.join(DATA_DIR, "transactions.csv")
 PLAYER_CSV = os.path.join(DATA_DIR, "player.csv")
+
+# News CSV file paths
+NEWS_CSV = os.path.join(DATA_DIR, "news.csv")
+PREVIOUS_NEWS_CSV = os.path.join(DATA_DIR, "previous_news.csv")
 
 # Weekly rollups (append-only)
 WEEKLY_REPORT_CSV = os.path.join(DATA_DIR, "weekly_report.csv")
@@ -514,7 +611,7 @@ def generate_weekly_report_row(player, inv, shop, week: int):
 
     # Use the same net-worth approximation as the HUD (cash + inventory @ sell price)
     net_worth = float(player.get("cash", 0.0)) + sum(
-        (market.sell_price(shop[sku]["buy_price"])) * inv[sku]["qty"]
+        (shop[sku]["buy_price"] * SPREAD) * inv[sku]["qty"]
         for sku in inv.keys()
         if sku in shop
     )
@@ -556,9 +653,32 @@ def capacity_upgrade_cost(player):
 
 
 def next_day(items, shop, player):
-    """Deprecated shim. Market logic moved to market.next_day()."""
-    return market.next_day(items, shop, player, log_txn, BILL_INTERVAL)
+    """
+    Advance the game by one day.  Prices move, new stock arrives and periodic
+    bills are charged every BILL_INTERVAL days.  Returns a message if a bill
+    payment occurred.
+    """
+    # Update prices toward base and random shock
+    for sku, s in shop.items():
+        base = items[sku]["base_price"]
+        current = s["buy_price"]
+        toward_base = (base - current) * 0.15
+        shock = current * random.uniform(-VOLATILITY, VOLATILITY)
+        new_price = max(1.0, current + toward_base + shock)
+        s["buy_price"] = new_price
+        s["qty"] += random.randint(RESTOCK_MIN, RESTOCK_MAX)
 
+    # Advance day
+    player["day"] += 1
+
+    # Every Sunday (each 7th day), deduct rent. Rent equals current storage capacity.
+    if player["day"] % BILL_INTERVAL == 0:
+        cost = float(player.get("capacity", 0) or 0)
+        player["cash"] -= cost
+        # Log as a rent transaction; use SKU "" to denote non-item
+        log_txn(player["day"], "", "RENT", 1, cost, cost, player["cash"])
+        return f"Paid rent: ${cost:.0f}"
+    return ""
 
 
 def load_image_or_placeholder(path: str, size=(24,24), colour=(180,180,180)):
@@ -747,10 +867,10 @@ def main():
     clock = pygame.time.Clock()
 
     # Fonts: default sans-serif approximates MS Sans Serif
-    font_small = pygame.font.Font(None, FONT_SMALL_SIZE)
-    font_medium = pygame.font.Font(None, FONT_MEDIUM_SIZE)
-    font_large = pygame.font.Font(None, FONT_LARGE_SIZE)
-    font_title = pygame.font.Font(None, FONT_TITLE_SIZE)
+    font_small = pygame.font.Font(None, 16)
+    font_medium = pygame.font.Font(None, 20)
+    font_large = pygame.font.Font(None, 28)
+    font_title = pygame.font.Font(None, 24)
 
     # Load base data
     items = load_items()
@@ -805,6 +925,12 @@ def main():
     report_prev_btn = None
     report_next_btn = None
     selected_report_week = 1
+
+    # News tab navigation
+    tab_news_btn = None
+    news_prev_btn = None
+    news_next_btn = None
+    selected_news_week = 1
     # Chat scroll buttons
     chat_up_btn = None
     chat_down_btn = None
@@ -917,7 +1043,7 @@ def main():
                         if inv[sku]["qty"] < qty_req:
                             set_toast("Not enough quantity to sell")
                             return
-                        sell_price = market.sell_price(shop[sku]["buy_price"])
+                        sell_price = shop[sku]["buy_price"] * SPREAD
                         total = sell_price * qty_req
                         inv[sku]["qty"] -= qty_req
                         player["cash"] += total
@@ -1017,10 +1143,19 @@ def main():
         increase_space()
 
     def advance_day():
-        """Advance the day, update prices and averages, pay bills and generate tips."""
-        nonlocal app_tab, selected_report_week
-        # progress the game day and handle bills
-        bill_msg = market.next_day(items, shop, player, log_txn, BILL_INTERVAL)
+        """Advance the day, update prices and averages, pay bills, generate tips and handle news."""
+        nonlocal app_tab, selected_report_week, selected_news_week
+        # Progress the game day and handle bills and news via the market module
+        messages, rent_due, new_events = market.next_day(items, shop, player, NEWS_CSV, PREVIOUS_NEWS_CSV)
+
+        bill_msg = ""
+        # Handle rent transaction separately (log and message)
+        if rent_due > 0:
+            # Log the rent as a transaction; SKU "" denotes non-item
+            log_txn(player["day"], "", "RENT", 1, rent_due, rent_due, player["cash"])
+        # Join any returned messages into a single toast message
+        if messages:
+            bill_msg = "\n".join(messages)
 
         # If we are now on a Sunday, generate a weekly report row (once) and
         # auto-switch to the Weekly Report tab.
@@ -1028,16 +1163,80 @@ def main():
             generate_weekly_report_row(player, inv, shop, week_number(player["day"]))
             app_tab = "weekly"
             selected_report_week = week_number(player["day"])
+        # Refresh the list of news weeks and clamp the selected week to the available range
+        news_weeks = market.get_news_weeks(PREVIOUS_NEWS_CSV)
+        if news_weeks:
+            # If new events were generated, default to the latest news week
+            if new_events:
+                selected_news_week = news_weeks[-1]
+            # Clamp existing selection
+            if selected_news_week < news_weeks[0]:
+                selected_news_week = news_weeks[0]
+            if selected_news_week > news_weeks[-1]:
+                selected_news_week = news_weeks[-1]
+        else:
+            selected_news_week = week_number(player["day"])
+
         # update cash history
         cash_history.append((player["day"], player["cash"]))
-        # Market tips/facts message (pricing logic lives in market.py)
-        chosen_msg = market.build_daily_chat_message(
-            player=player,
-            shop=shop,
-            inv=inv,
-            avg_buy_prices=avg_buy_prices,
-            bill_interval=BILL_INTERVAL,
-        )
+        # Update running average buy prices per SKU (including today's price)
+        current_day = player["day"]
+        for sku in shop:
+            current_price = shop[sku]["buy_price"]
+            prev_avg = avg_buy_prices.get(sku, current_price)
+            # Weighted average: previous average times (day-1) plus current price
+            new_avg = ((prev_avg * (current_day - 1)) + current_price) / current_day
+            avg_buy_prices[sku] = new_avg
+        # Prepare separate lists for tips and facts
+        tips = []
+        facts = []
+        # Build buy and sell tips
+        buy_candidates = []
+        for sku in shop:
+            cur_price = shop[sku]["buy_price"]
+            avg_price = avg_buy_prices.get(sku, cur_price)
+            if cur_price < avg_price * 0.95:  # at least 5% below average
+                buy_candidates.append((sku, cur_price, avg_price))
+        if buy_candidates:
+            best_buy = min(buy_candidates, key=lambda x: x[1] / x[2])
+            sku, cur_price, avg_price = best_buy
+            tips.append(f"Tip: BUY {sku} – now ${cur_price:.2f} < avg ${avg_price:.2f}")
+        # Sell tips
+        sell_candidates = []
+        for sku in inv:
+            sell_price = shop[sku]["buy_price"] * SPREAD
+            avg_cost = inv[sku]["avg_cost"]
+            if sell_price > avg_cost * 1.05:
+                sell_candidates.append((sku, sell_price, avg_cost))
+        if sell_candidates:
+            best_sell = max(sell_candidates, key=lambda x: x[1] / x[2])
+            sku, sp, cost = best_sell
+            tips.append(f"Tip: SELL {sku} – sell ${sp:.2f} > cost ${cost:.2f}")
+        # Facts about rent due and cash (rent = current storage capacity)
+        days_until = BILL_INTERVAL - (player['day'] % BILL_INTERVAL)
+        next_rent = int(player.get('capacity', 0) or 0)
+        facts.append(f"{days_until} day{'s' if days_until != 1 else ''} till rent (${next_rent}) is due.")
+        # Always include cash fact
+        facts.append(f"You have ${player['cash']:.2f} cash.")
+        # Show bill message if any.  set_toast adds it to chat as well.
+        if bill_msg:
+            set_toast(bill_msg)
+        # Determine whether to show a tip or a fact on this day
+        show_tip = (player["day"] % 2 == 1)
+        # Choose a message accordingly
+        chosen_msg = None
+        if show_tip and tips:
+            # pick one tip at random
+            chosen_msg = random.choice(tips)
+        elif not show_tip and facts:
+            chosen_msg = random.choice(facts)
+        # If no message chosen yet, fall back to whichever exists
+        if not chosen_msg:
+            if tips:
+                chosen_msg = random.choice(tips)
+            elif facts:
+                chosen_msg = random.choice(facts)
+        # Add the chosen message if available
         if chosen_msg:
             add_chat_message(chosen_msg)
         save_shop(shop)
@@ -1062,6 +1261,7 @@ def main():
                 # Main app events (tabbed UI)
                 tab_market_btn.handle_event(event)
                 tab_weekly_btn.handle_event(event)
+                tab_news_btn.handle_event(event)
 
                 # Next day button is available on both tabs
                 next_day_btn.handle_event(event)
@@ -1080,12 +1280,16 @@ def main():
                     down_shop_btn.handle_event(event)
                     up_inv_btn.handle_event(event)
                     down_inv_btn.handle_event(event)
-                else:
+                elif app_tab == "weekly":
                     # Weekly report tab: storage change buttons live here
                     inc_space_btn.handle_event(event)
                     dec_space_btn.handle_event(event)
                     report_prev_btn.handle_event(event)
                     report_next_btn.handle_event(event)
+                elif app_tab == "news":
+                    # News tab: navigation arrows
+                    news_prev_btn.handle_event(event)
+                    news_next_btn.handle_event(event)
 
                 # chat scroll buttons (visible on both tabs)
                 chat_up_btn.handle_event(event)
@@ -1098,6 +1302,7 @@ def main():
         if mode != "start":
             tab_market_btn.update()
             tab_weekly_btn.update()
+            tab_news_btn.update()
             next_day_btn.update()
             chat_up_btn.update()
             chat_down_btn.update()
@@ -1109,11 +1314,14 @@ def main():
                 down_shop_btn.update()
                 up_inv_btn.update()
                 down_inv_btn.update()
-            else:
+            elif app_tab == "weekly":
                 inc_space_btn.update()
                 dec_space_btn.update()
                 report_prev_btn.update()
                 report_next_btn.update()
+            elif app_tab == "news":
+                news_prev_btn.update()
+                news_next_btn.update()
             # update chat scroll buttons
             buy_space_btn.update()
 
@@ -1165,9 +1373,10 @@ def main():
                 btn_rect.center = (win_rect.centerx, label_y + 60)
                 def on_start():
                     nonlocal player, shop, inv, shop_offset, inv_offset, cash_history
-                    nonlocal next_day_btn, tab_market_btn, tab_weekly_btn
+                    nonlocal next_day_btn, tab_market_btn, tab_weekly_btn, tab_news_btn
                     nonlocal buy_space_btn, inc_space_btn, dec_space_btn
                     nonlocal report_prev_btn, report_next_btn, selected_report_week
+                    nonlocal news_prev_btn, news_next_btn, selected_news_week
                     nonlocal up_shop_btn, down_shop_btn, up_inv_btn, down_inv_btn
                     nonlocal app_tab
                     nonlocal chat_messages, chat_offset, avg_buy_prices, chat_up_btn, chat_down_btn
@@ -1207,8 +1416,12 @@ def main():
                     def go_weekly():
                         nonlocal app_tab
                         app_tab = "weekly"
+                    def go_news():
+                        nonlocal app_tab
+                        app_tab = "news"
                     tab_market_btn = RetroButton(pygame.Rect(0,0,120,24), "Market", go_market)
                     tab_weekly_btn = RetroButton(pygame.Rect(0,0,140,24), "Weekly Report", go_weekly)
+                    tab_news_btn = RetroButton(pygame.Rect(0,0,100,24), "News", go_news)
 
                     # Storage buttons live on the Weekly Report tab
                     inc_space_btn = RetroButton(pygame.Rect(0,0,100,30), "Increase", increase_space)
@@ -1234,6 +1447,35 @@ def main():
                     report_prev_btn = RetroButton(pygame.Rect(0,0,26,22), "<", report_prev)
                     report_next_btn = RetroButton(pygame.Rect(0,0,26,22), ">", report_next)
 
+                    # -----------------------------------------------------------------
+                    # News navigation (prev/next week)
+                    # The news tab shows a weekly feed of news events.  Each news item
+                    # persists for the duration defined in the news CSV.  Players can
+                    # navigate between weeks using these buttons.
+                    def news_prev():
+                        nonlocal selected_news_week
+                        weeks = market.get_news_weeks(PREVIOUS_NEWS_CSV)
+                        if not weeks:
+                            return
+                        min_w = weeks[0]
+                        selected_news_week = max(min_w, selected_news_week - 1)
+
+                    def news_next():
+                        nonlocal selected_news_week
+                        weeks = market.get_news_weeks(PREVIOUS_NEWS_CSV)
+                        if not weeks:
+                            return
+                        max_w = weeks[-1]
+                        selected_news_week = min(max_w, selected_news_week + 1)
+
+                    news_prev_btn = RetroButton(pygame.Rect(0,0,26,22), "<", news_prev)
+                    news_next_btn = RetroButton(pygame.Rect(0,0,26,22), ">", news_next)
+
+                    # Ensure the previous news CSV exists
+                    market.init_previous_news_if_missing(PREVIOUS_NEWS_CSV)
+                    # Default selected news week = latest week with news or current week if none
+                    news_weeks = market.get_news_weeks(PREVIOUS_NEWS_CSV)
+                    selected_news_week = news_weeks[-1] if news_weeks else week_number(player["day"])
                     # Default selected report week = latest (if any)
                     rows = load_weekly_reports_typed()
                     selected_report_week = rows[-1]["week"] if rows else 1
@@ -1294,17 +1536,24 @@ def main():
             day_surf = font_medium.render(f"Day {player['day']}, {DAY_NAMES[dow]}", True, COLOR_CONTROL_TEXT)
             cash_surf = font_medium.render(f"Cash: ${player['cash']:.2f}", True, COLOR_CONTROL_TEXT)
             storage_surf = font_medium.render(f"Storage: {inv_used_units(inv)}/{player['capacity']}", True, COLOR_CONTROL_TEXT)
-            net_worth = player["cash"] + sum(market.sell_price(shop[sku]["buy_price"]) * inv[sku]["qty"] for sku in inv.keys())
+            net_worth = player["cash"] + sum((shop[sku]["buy_price"]*SPREAD) * inv[sku]["qty"] for sku in inv.keys())
             net_surf = font_medium.render(f"Net Worth: ${net_worth:.2f}", True, COLOR_CONTROL_TEXT)
             screen.blit(day_surf, (hud_rect.x + 8, hud_rect.y + 6))
             screen.blit(cash_surf, (hud_rect.x + 8, hud_rect.y + 28))
             screen.blit(storage_surf, (hud_rect.x + 180, hud_rect.y + 6))
             screen.blit(net_surf, (hud_rect.x + 180, hud_rect.y + 28))
             # Tabs (top-left inside the HUD)
+            # Position the tab buttons relative to the HUD.  Tabs are laid out
+            # horizontally with a small gap between them.  The market tab
+            # anchors at an offset from the left of the HUD.
             tab_market_btn.rect.topleft = (hud_rect.x + 420, hud_rect.y + 6)
-            tab_weekly_btn.rect.topleft = (hud_rect.x + 545, hud_rect.y + 6)
+            # weekly tab starts after the market tab plus a 5px gap
+            tab_weekly_btn.rect.topleft = (tab_market_btn.rect.right + 5, hud_rect.y + 6)
+            # news tab starts after the weekly tab plus a 5px gap
+            tab_news_btn.rect.topleft = (tab_weekly_btn.rect.right + 5, hud_rect.y + 6)
             tab_market_btn.draw(screen, font_small)
             tab_weekly_btn.draw(screen, font_small)
+            tab_news_btn.draw(screen, font_small)
 
             # Position action buttons next to HUD
             next_day_btn.rect.topleft = (hud_rect.right - 220, hud_rect.y + 4)
@@ -1459,7 +1708,7 @@ def main():
                     screen.blit(avg_surf, (x_pos + 2, row_y + 6))
                     x_pos += INV_COL_WIDTHS[3]
                     # column 4: sell price
-                    sell_price = market.sell_price(shop[sku]["buy_price"])
+                    sell_price = shop[sku]["buy_price"] * SPREAD
                     sell_surf = font_small.render(f"${sell_price:.2f}", True, COLOR_CONTROL_TEXT)
                     screen.blit(sell_surf, (x_pos + 2, row_y + 6))
                     x_pos += INV_COL_WIDTHS[4]
@@ -1631,6 +1880,109 @@ def main():
                         lines.append(cur)
                     for li, line in enumerate(lines[:2]):
                         screen.blit(font_medium.render(line, True, COLOR_CONTROL_TEXT), (text_x_l + 70, note_y + li * 22))
+
+            # -----------------------------------------------------------------
+            # News tab overlay
+            # When the News tab is active this section renders news events for
+            # the selected week.  News items are generated every Friday and
+            # persisted to previous_news.csv.  Players can use the arrow
+            # buttons to navigate between weeks.
+            if app_tab == "news":
+                news_panel = pygame.Rect(left_table_x, table_top_y, (TABLE_WIDTH * 2) + SPACING, REPORT_HEIGHT)
+                pygame.draw.rect(screen, COLOR_WINDOW, news_panel)
+                pygame.draw.rect(screen, COLOR_WINDOW_BORDER_DARK, news_panel, 1)
+
+                # Header bar
+                news_header = pygame.Rect(news_panel.x, news_panel.y, news_panel.width, HEADER_HEIGHT)
+                pygame.draw.rect(screen, COLOR_TABLE_HEADER, news_header)
+                news_title = font_medium.render("Market News", True, COLOR_TABLE_HEADER_TEXT)
+                screen.blit(news_title, (news_header.x + 6, news_header.y + (HEADER_HEIGHT - news_title.get_height())//2))
+
+                # Determine available weeks and clamp the selected week
+                weeks_available = market.get_news_weeks(PREVIOUS_NEWS_CSV)
+                if weeks_available:
+                    if selected_news_week < weeks_available[0]:
+                        selected_news_week = weeks_available[0]
+                    if selected_news_week > weeks_available[-1]:
+                        selected_news_week = weeks_available[-1]
+
+                # Title line with week number
+                title_str = f"WEEK {selected_news_week} NEWS"
+                center_title = font_large.render(title_str, True, COLOR_CONTROL_TEXT)
+                title_x = news_panel.centerx - center_title.get_width() // 2
+                title_y = news_header.bottom + 16
+                screen.blit(center_title, (title_x, title_y))
+
+                # Position navigation arrows around the title
+                if len(weeks_available) > 1:
+                    gap = 12
+                    news_prev_btn.visible = (selected_news_week > weeks_available[0])
+                    news_next_btn.visible = (selected_news_week < weeks_available[-1])
+                    news_prev_btn.rect.topleft = (title_x - gap - news_prev_btn.rect.width, title_y + 2)
+                    news_next_btn.rect.topleft = (title_x + center_title.get_width() + gap, title_y + 2)
+                    news_prev_btn.draw(screen, font_small)
+                    news_next_btn.draw(screen, font_small)
+                else:
+                    news_prev_btn.visible = False
+                    news_next_btn.visible = False
+
+                # Underline under the title
+                underline = font_medium.render("_" * 30, True, COLOR_CONTROL_TEXT)
+                screen.blit(underline, (news_panel.centerx - underline.get_width() // 2, title_y + 24))
+
+                # Load news events for the selected week
+                events = market.get_news_for_week(selected_news_week, PREVIOUS_NEWS_CSV)
+
+                # Area to render the news items
+                content_x = news_panel.x + 18
+                y_cursor = title_y + 50
+                line_height = 22
+                max_width = news_panel.width - 36
+                if not events:
+                    msg = "No news yet. New reports are published each Friday."
+                    screen.blit(font_medium.render(msg, True, COLOR_CONTROL_TEXT), (content_x, y_cursor))
+                else:
+                    for ev in events:
+                        # Headline
+                        headline = ev.get("headline", "")
+                        headline_surf = font_medium.render(headline, True, COLOR_CONTROL_TEXT)
+                        screen.blit(headline_surf, (content_x, y_cursor))
+                        y_cursor += line_height
+                        # Article (wrap text using font_small measurement)
+                        article = ev.get("article", "")
+                        words = article.split(" ")
+                        line = ""
+                        for w in words:
+                            test = (line + " " + w).strip()
+                            if font_small.size(test)[0] <= max_width - 20:
+                                line = test
+                            else:
+                                screen.blit(font_small.render(line, True, COLOR_CONTROL_TEXT), (content_x + 20, y_cursor))
+                                y_cursor += line_height
+                                line = w
+                        if line:
+                            screen.blit(font_small.render(line, True, COLOR_CONTROL_TEXT), (content_x + 20, y_cursor))
+                            y_cursor += line_height
+                        # Impact line
+                        try:
+                            impact_val = float(ev.get("impact", 0) or 0)
+                        except Exception:
+                            impact_val = 0.0
+                        if impact_val > 0:
+                            impact_col = (0, 110, 0)
+                            imp_text = f"Impact on price: +${impact_val:.2f}"
+                        elif impact_val < 0:
+                            impact_col = (140, 0, 0)
+                            imp_text = f"Impact on price: -${abs(impact_val):.2f}"
+                        else:
+                            impact_col = COLOR_CONTROL_TEXT
+                            imp_text = f"Impact on price: ${impact_val:.2f}"
+                        screen.blit(font_small.render(imp_text, True, impact_col), (content_x, y_cursor))
+                        y_cursor += line_height
+                        # Duration line
+                        dur = ev.get("duration", "1")
+                        screen.blit(font_small.render(f"Expected duration in days this will last: {dur}", True, COLOR_CONTROL_TEXT), (content_x, y_cursor))
+                        y_cursor += line_height + 6  # extra space before next item
 
             PANEL_PAD = 6
             HEADER_H = 20
