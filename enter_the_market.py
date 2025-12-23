@@ -4,7 +4,10 @@ import random
 from datetime import datetime
 
 import pygame
+from style import *  # UI theme/layout constants live here
 
+
+import market
 """
 retro_market.py
 ----------------
@@ -20,8 +23,6 @@ and a simple graph showing cash over days.  Data persists via CSV files.
 # Configuration and constants
 # -------------------------------------------------------------
 
-WIDTH, HEIGHT = 1200, 720
-FPS = 60
 
 DATA_DIR = "data"
 RES_DIR = "resources"
@@ -30,10 +31,7 @@ DEFAULT_STARTING_CASH = 100
 DEFAULT_CAPACITY = 5           # starting storage capacity (units)
 CAPACITY_STEP = 1              # change in storage capacity per adjustment
 
-# Price dynamics
-VOLATILITY = 0.18              # daily price movement magnitude (relative)
-SPREAD = 0.90                  # player's sell price = shop buy price * SPREAD
-RESTOCK_MIN, RESTOCK_MAX = 0, 8  # new shop stock each day
+# Price dynamics (moved to market.py)
 
 # Rent is paid weekly (every Sunday). Rent cost equals current storage capacity
 # (i.e. $1 per unit of space you can hold).
@@ -41,65 +39,31 @@ BILL_INTERVAL = 7
 
 # Retro colour palette
 # Classic Windows 95 greys and blues
-COLOR_DESKTOP = (192, 192, 192)
-COLOR_WINDOW = (212, 208, 200)
-COLOR_TITLE_BAR = (0, 0, 128)
-COLOR_TITLE_TEXT = (255, 255, 255)
-COLOR_WINDOW_BORDER_LIGHT = (255, 255, 255)
-COLOR_WINDOW_BORDER_DARK = (128, 128, 128)
-COLOR_CONTROL_BACKGROUND = (236, 236, 236)
-COLOR_CONTROL_BORDER_LIGHT = (255, 255, 255)
-COLOR_CONTROL_BORDER_DARK = (128, 128, 128)
-COLOR_CONTROL_TEXT = (0, 0, 0)
-COLOR_TABLE_HEADER = (0, 0, 128)
-COLOR_TABLE_HEADER_TEXT = (255, 255, 255)
-COLOR_ROW_LIGHT = (224, 224, 224)
-COLOR_ROW_DARK = (192, 192, 192)
-COLOR_GRAPH_BACKGROUND = (255, 255, 255)
-COLOR_GRAPH_LINE = (0, 0, 255)
-COLOR_TOAST = (200, 50, 50)
 
 # Chat colours (terminal style)
-COLOR_CHAT_BACKGROUND = (0, 0, 0)
-COLOR_CHAT_TEXT = (0, 255, 0)
 
 # Chat formatting
 CHAT_LINE_HEIGHT = 16  # pixel height per chat line
 
 # Layout constants
-MARGIN = 20
-SPACING = 10
-TABLE_WIDTH = (WIDTH - 2 * MARGIN - SPACING * 2) // 2
-TABLE_HEIGHT = 300
-REPORT_HEIGHT = 500
-HEADER_HEIGHT = 30
-SCROLL_BUTTON_HEIGHT = 20
-ROW_HEIGHT = 26
 # The number of rows visible in each table before scrolling.  We reserve space
 # for a column header row in addition to the coloured header bar and scroll
 # buttons.  The 20 pixels correspond to the column header row.
-VISIBLE_ROWS = (TABLE_HEIGHT - HEADER_HEIGHT - 20 - 2 * SCROLL_BUTTON_HEIGHT) // ROW_HEIGHT
 # Height of the chat area beneath the tables.  The graph from the earlier
 # version has been replaced with a chat/terminal area for messages and tips.
-CHAT_HEIGHT = 150
 HUD_HEIGHT = 50
 TITLE_BAR_HEIGHT = 30
 
 # Height of the cash history graph inside the chat area.  The chat area is
 # divided into a graph portion and a command-line/message portion.  Keep
 # GRAPH_HEIGHT relatively small so chat messages still have space.
-GRAPH_HEIGHT = 60
 
 # Column widths for tables (sum should fit within table width minus scroll bar)
 # Shop columns: image, sku, description, quantity, current price, average buy price,
 # input field, button.  Total width must be <= table_panel.width - scroll bar.
-SHOP_COL_WIDTHS = [24, 60, 140, 60, 70, 70, 50, 50]
 # Inventory columns: image, sku, description, avg cost, quantity, sell price,
 # input field, button.
-INV_COL_WIDTHS = [24, 60, 140, 60, 70, 70, 60, 50]
 #SHOP_HEADERS = ["Img", "SKU", "Description", "In Stock", "Price", "Avg_Price", "Qty", ""]
-SHOP_HEADERS = ["Img", "SKU", "Description", "Avg_Price", "Buy_price", "In Stock",  "Qty", ""]
-INV_HEADERS = ["Img", "SKU", "Description", "Avg_cost", "Sell_price", "SOH", "Qty", ""]
 
 # Day names (Day 1 = Monday)
 DAY_NAMES = [
@@ -550,7 +514,7 @@ def generate_weekly_report_row(player, inv, shop, week: int):
 
     # Use the same net-worth approximation as the HUD (cash + inventory @ sell price)
     net_worth = float(player.get("cash", 0.0)) + sum(
-        (shop[sku]["buy_price"] * SPREAD) * inv[sku]["qty"]
+        (market.sell_price(shop[sku]["buy_price"])) * inv[sku]["qty"]
         for sku in inv.keys()
         if sku in shop
     )
@@ -592,32 +556,9 @@ def capacity_upgrade_cost(player):
 
 
 def next_day(items, shop, player):
-    """
-    Advance the game by one day.  Prices move, new stock arrives and periodic
-    bills are charged every BILL_INTERVAL days.  Returns a message if a bill
-    payment occurred.
-    """
-    # Update prices toward base and random shock
-    for sku, s in shop.items():
-        base = items[sku]["base_price"]
-        current = s["buy_price"]
-        toward_base = (base - current) * 0.15
-        shock = current * random.uniform(-VOLATILITY, VOLATILITY)
-        new_price = max(1.0, current + toward_base + shock)
-        s["buy_price"] = new_price
-        s["qty"] += random.randint(RESTOCK_MIN, RESTOCK_MAX)
+    """Deprecated shim. Market logic moved to market.next_day()."""
+    return market.next_day(items, shop, player, log_txn, BILL_INTERVAL)
 
-    # Advance day
-    player["day"] += 1
-
-    # Every Sunday (each 7th day), deduct rent. Rent equals current storage capacity.
-    if player["day"] % BILL_INTERVAL == 0:
-        cost = float(player.get("capacity", 0) or 0)
-        player["cash"] -= cost
-        # Log as a rent transaction; use SKU "" to denote non-item
-        log_txn(player["day"], "", "RENT", 1, cost, cost, player["cash"])
-        return f"Paid rent: ${cost:.0f}"
-    return ""
 
 
 def load_image_or_placeholder(path: str, size=(24,24), colour=(180,180,180)):
@@ -806,10 +747,10 @@ def main():
     clock = pygame.time.Clock()
 
     # Fonts: default sans-serif approximates MS Sans Serif
-    font_small = pygame.font.Font(None, 16)
-    font_medium = pygame.font.Font(None, 20)
-    font_large = pygame.font.Font(None, 28)
-    font_title = pygame.font.Font(None, 24)
+    font_small = pygame.font.Font(None, FONT_SMALL_SIZE)
+    font_medium = pygame.font.Font(None, FONT_MEDIUM_SIZE)
+    font_large = pygame.font.Font(None, FONT_LARGE_SIZE)
+    font_title = pygame.font.Font(None, FONT_TITLE_SIZE)
 
     # Load base data
     items = load_items()
@@ -976,7 +917,7 @@ def main():
                         if inv[sku]["qty"] < qty_req:
                             set_toast("Not enough quantity to sell")
                             return
-                        sell_price = shop[sku]["buy_price"] * SPREAD
+                        sell_price = market.sell_price(shop[sku]["buy_price"])
                         total = sell_price * qty_req
                         inv[sku]["qty"] -= qty_req
                         player["cash"] += total
@@ -1079,7 +1020,7 @@ def main():
         """Advance the day, update prices and averages, pay bills and generate tips."""
         nonlocal app_tab, selected_report_week
         # progress the game day and handle bills
-        bill_msg = next_day(items, shop, player)
+        bill_msg = market.next_day(items, shop, player, log_txn, BILL_INTERVAL)
 
         # If we are now on a Sunday, generate a weekly report row (once) and
         # auto-switch to the Weekly Report tab.
@@ -1089,64 +1030,14 @@ def main():
             selected_report_week = week_number(player["day"])
         # update cash history
         cash_history.append((player["day"], player["cash"]))
-        # Update running average buy prices per SKU (including today's price)
-        current_day = player["day"]
-        for sku in shop:
-            current_price = shop[sku]["buy_price"]
-            prev_avg = avg_buy_prices.get(sku, current_price)
-            # Weighted average: previous average times (day-1) plus current price
-            new_avg = ((prev_avg * (current_day - 1)) + current_price) / current_day
-            avg_buy_prices[sku] = new_avg
-        # Prepare separate lists for tips and facts
-        tips = []
-        facts = []
-        # Build buy and sell tips
-        buy_candidates = []
-        for sku in shop:
-            cur_price = shop[sku]["buy_price"]
-            avg_price = avg_buy_prices.get(sku, cur_price)
-            if cur_price < avg_price * 0.95:  # at least 5% below average
-                buy_candidates.append((sku, cur_price, avg_price))
-        if buy_candidates:
-            best_buy = min(buy_candidates, key=lambda x: x[1] / x[2])
-            sku, cur_price, avg_price = best_buy
-            tips.append(f"Tip: BUY {sku} – now ${cur_price:.2f} < avg ${avg_price:.2f}")
-        # Sell tips
-        sell_candidates = []
-        for sku in inv:
-            sell_price = shop[sku]["buy_price"] * SPREAD
-            avg_cost = inv[sku]["avg_cost"]
-            if sell_price > avg_cost * 1.05:
-                sell_candidates.append((sku, sell_price, avg_cost))
-        if sell_candidates:
-            best_sell = max(sell_candidates, key=lambda x: x[1] / x[2])
-            sku, sp, cost = best_sell
-            tips.append(f"Tip: SELL {sku} – sell ${sp:.2f} > cost ${cost:.2f}")
-        # Facts about rent due and cash (rent = current storage capacity)
-        days_until = BILL_INTERVAL - (player['day'] % BILL_INTERVAL)
-        next_rent = int(player.get('capacity', 0) or 0)
-        facts.append(f"{days_until} day{'s' if days_until != 1 else ''} till rent (${next_rent}) is due.")
-        # Always include cash fact
-        facts.append(f"You have ${player['cash']:.2f} cash.")
-        # Show bill message if any.  set_toast adds it to chat as well.
-        if bill_msg:
-            set_toast(bill_msg)
-        # Determine whether to show a tip or a fact on this day
-        show_tip = (player["day"] % 2 == 1)
-        # Choose a message accordingly
-        chosen_msg = None
-        if show_tip and tips:
-            # pick one tip at random
-            chosen_msg = random.choice(tips)
-        elif not show_tip and facts:
-            chosen_msg = random.choice(facts)
-        # If no message chosen yet, fall back to whichever exists
-        if not chosen_msg:
-            if tips:
-                chosen_msg = random.choice(tips)
-            elif facts:
-                chosen_msg = random.choice(facts)
-        # Add the chosen message if available
+        # Market tips/facts message (pricing logic lives in market.py)
+        chosen_msg = market.build_daily_chat_message(
+            player=player,
+            shop=shop,
+            inv=inv,
+            avg_buy_prices=avg_buy_prices,
+            bill_interval=BILL_INTERVAL,
+        )
         if chosen_msg:
             add_chat_message(chosen_msg)
         save_shop(shop)
@@ -1403,7 +1294,7 @@ def main():
             day_surf = font_medium.render(f"Day {player['day']}, {DAY_NAMES[dow]}", True, COLOR_CONTROL_TEXT)
             cash_surf = font_medium.render(f"Cash: ${player['cash']:.2f}", True, COLOR_CONTROL_TEXT)
             storage_surf = font_medium.render(f"Storage: {inv_used_units(inv)}/{player['capacity']}", True, COLOR_CONTROL_TEXT)
-            net_worth = player["cash"] + sum((shop[sku]["buy_price"]*SPREAD) * inv[sku]["qty"] for sku in inv.keys())
+            net_worth = player["cash"] + sum(market.sell_price(shop[sku]["buy_price"]) * inv[sku]["qty"] for sku in inv.keys())
             net_surf = font_medium.render(f"Net Worth: ${net_worth:.2f}", True, COLOR_CONTROL_TEXT)
             screen.blit(day_surf, (hud_rect.x + 8, hud_rect.y + 6))
             screen.blit(cash_surf, (hud_rect.x + 8, hud_rect.y + 28))
@@ -1568,7 +1459,7 @@ def main():
                     screen.blit(avg_surf, (x_pos + 2, row_y + 6))
                     x_pos += INV_COL_WIDTHS[3]
                     # column 4: sell price
-                    sell_price = shop[sku]["buy_price"] * SPREAD
+                    sell_price = market.sell_price(shop[sku]["buy_price"])
                     sell_surf = font_small.render(f"${sell_price:.2f}", True, COLOR_CONTROL_TEXT)
                     screen.blit(sell_surf, (x_pos + 2, row_y + 6))
                     x_pos += INV_COL_WIDTHS[4]
