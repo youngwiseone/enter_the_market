@@ -1,15 +1,15 @@
-sku,description,image,price
-A100,Iron Ingot,iron_ingot.png,10
-A110,Copper Wire,copper_wire.png,8
-A120,Wood Plank,wood_plank.png,5
-A130,Health Potion,health_potion.png,15
-A140,Leather Roll,leather_roll.png,12
-A150,Crystal Shard,crystal_shard.png,22
-A160,Coal Lump,coal_lump.png,6
-A170,Glass Bottle,glass_bottle.png,7
-A180,Gear Wheel,gear_wheel.png,18
-A190,Cloth Bundle,cloth_bundle.png,9
-A200,Silver Nugget,silver_nugget.png,28
-A210,Magic Ink,magic_ink.png,25
-A220,Spice Pouch,spice_pouch.png,14
-A230,Stone Brick,stone_brick.png,4
+sku,description,image,price,type,crafting_output
+A100,Iron Ingot,iron_ingot.png,10,RAW,A180
+A110,Copper Wire,copper_wire.png,8,NULL,
+A120,Wood Plank,wood_plank.png,5,NULL,
+A130,Health Potion,health_potion.png,15,NULL,
+A140,Leather Roll,leather_roll.png,12,NULL,
+A150,Crystal Shard,crystal_shard.png,22,NULL,
+A160,Coal Lump,coal_lump.png,6,NULL,
+A170,Glass Bottle,glass_bottle.png,7,NULL,
+A180,Gear Wheel,gear_wheel.png,18,REFINED,A100
+A190,Cloth Bundle,cloth_bundle.png,9,NULL,
+A200,Silver Nugget,silver_nugget.png,28,NULL,
+A210,Magic Ink,magic_ink.png,25,NULL,
+A220,Spice Pouch,spice_pouch.png,14,NULL,
+A230,Stone Brick,stone_brick.png,4,NULL,

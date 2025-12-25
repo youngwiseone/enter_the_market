@@ -7,60 +7,10 @@ import pygame
 
 # Import shared styling constants and market logic
 import style
+import screensaver
 from style import *  # bring all constants into local namespace for backwards compatibility
 import market
 from market import week_number  # use shared week calculation
-
-# Override locally defined constants with values imported from style.  This ensures
-# that modifying style.py will propagate throughout the UI.  Without these
-# assignments the original hard‑coded values defined below would take
-# precedence.
-WIDTH, HEIGHT = style.WIDTH, style.HEIGHT
-FPS = style.FPS
-DEFAULT_STARTING_CASH = style.DEFAULT_STARTING_CASH
-DEFAULT_CAPACITY = style.DEFAULT_CAPACITY
-CAPACITY_STEP = style.CAPACITY_STEP
-VOLATILITY = style.VOLATILITY
-SPREAD = style.SPREAD
-RESTOCK_MIN, RESTOCK_MAX = style.RESTOCK_MIN, style.RESTOCK_MAX
-BILL_INTERVAL = style.BILL_INTERVAL
-COLOR_DESKTOP = style.COLOR_DESKTOP
-COLOR_WINDOW = style.COLOR_WINDOW
-COLOR_TITLE_BAR = style.COLOR_TITLE_BAR
-COLOR_TITLE_TEXT = style.COLOR_TITLE_TEXT
-COLOR_WINDOW_BORDER_LIGHT = style.COLOR_WINDOW_BORDER_LIGHT
-COLOR_WINDOW_BORDER_DARK = style.COLOR_WINDOW_BORDER_DARK
-COLOR_CONTROL_BACKGROUND = style.COLOR_CONTROL_BACKGROUND
-COLOR_CONTROL_BORDER_LIGHT = style.COLOR_CONTROL_BORDER_LIGHT
-COLOR_CONTROL_BORDER_DARK = style.COLOR_CONTROL_BORDER_DARK
-COLOR_CONTROL_TEXT = style.COLOR_CONTROL_TEXT
-COLOR_TABLE_HEADER = style.COLOR_TABLE_HEADER
-COLOR_TABLE_HEADER_TEXT = style.COLOR_TABLE_HEADER_TEXT
-COLOR_ROW_LIGHT = style.COLOR_ROW_LIGHT
-COLOR_ROW_DARK = style.COLOR_ROW_DARK
-COLOR_GRAPH_BACKGROUND = style.COLOR_GRAPH_BACKGROUND
-COLOR_GRAPH_LINE = style.COLOR_GRAPH_LINE
-COLOR_TOAST = style.COLOR_TOAST
-COLOR_CHAT_BACKGROUND = style.COLOR_CHAT_BACKGROUND
-COLOR_CHAT_TEXT = style.COLOR_CHAT_TEXT
-CHAT_LINE_HEIGHT = style.CHAT_LINE_HEIGHT
-MARGIN = style.MARGIN
-SPACING = style.SPACING
-TABLE_WIDTH = style.TABLE_WIDTH
-TABLE_HEIGHT = style.TABLE_HEIGHT
-REPORT_HEIGHT = style.REPORT_HEIGHT
-HEADER_HEIGHT = style.HEADER_HEIGHT
-SCROLL_BUTTON_HEIGHT = style.SCROLL_BUTTON_HEIGHT
-ROW_HEIGHT = style.ROW_HEIGHT
-VISIBLE_ROWS = style.VISIBLE_ROWS
-CHAT_HEIGHT = style.CHAT_HEIGHT
-HUD_HEIGHT = style.HUD_HEIGHT
-TITLE_BAR_HEIGHT = style.TITLE_BAR_HEIGHT
-GRAPH_HEIGHT = style.GRAPH_HEIGHT
-SHOP_COL_WIDTHS = style.SHOP_COL_WIDTHS
-INV_COL_WIDTHS = style.INV_COL_WIDTHS
-SHOP_HEADERS = style.SHOP_HEADERS
-INV_HEADERS = style.INV_HEADERS
 
 """
 retro_market.py
@@ -158,6 +108,43 @@ INV_COL_WIDTHS = [24, 60, 140, 60, 70, 70, 60, 50]
 SHOP_HEADERS = ["Img", "SKU", "Description", "Avg_Price", "Buy_price", "In Stock",  "Qty", ""]
 INV_HEADERS = ["Img", "SKU", "Description", "Avg_cost", "Sell_price", "SOH", "Qty", ""]
 
+
+def refresh_style_from_module():
+    """Refresh locally-cached style constants from the style module.
+
+    This project historically keeps many UI constants as module-level globals
+    (COLOR_*, UI border radius, etc.). When a theme / UI skin is changed at
+    runtime, we update the *style module* and then call this function so the
+    new values take effect immediately.
+    """
+    global COLOR_DESKTOP, COLOR_WINDOW, COLOR_TITLE_BAR, COLOR_TITLE_TEXT
+    global COLOR_WINDOW_BORDER_LIGHT, COLOR_WINDOW_BORDER_DARK
+    global COLOR_CONTROL_BACKGROUND, COLOR_CONTROL_BORDER_LIGHT, COLOR_CONTROL_BORDER_DARK
+    global COLOR_CONTROL_TEXT, COLOR_TABLE_HEADER, COLOR_TABLE_HEADER_TEXT
+    global COLOR_ROW_LIGHT, COLOR_ROW_DARK
+    global COLOR_GRAPH_BACKGROUND, COLOR_GRAPH_LINE, COLOR_TOAST
+    global COLOR_CHAT_BACKGROUND, COLOR_CHAT_TEXT
+    global UI_BORDER_RADIUS
+
+    # Only override if the attribute exists in style.py
+    for name in [
+        "COLOR_DESKTOP","COLOR_WINDOW","COLOR_TITLE_BAR","COLOR_TITLE_TEXT",
+        "COLOR_WINDOW_BORDER_LIGHT","COLOR_WINDOW_BORDER_DARK",
+        "COLOR_CONTROL_BACKGROUND","COLOR_CONTROL_BORDER_LIGHT","COLOR_CONTROL_BORDER_DARK",
+        "COLOR_CONTROL_TEXT","COLOR_TABLE_HEADER","COLOR_TABLE_HEADER_TEXT",
+        "COLOR_ROW_LIGHT","COLOR_ROW_DARK",
+        "COLOR_GRAPH_BACKGROUND","COLOR_GRAPH_LINE","COLOR_TOAST",
+        "COLOR_CHAT_BACKGROUND","COLOR_CHAT_TEXT",
+    ]:
+        if hasattr(style, name):
+            globals()[name] = getattr(style, name)
+
+    UI_BORDER_RADIUS = getattr(style, "UI_BORDER_RADIUS", 0)
+
+
+# Apply the default theme/skin values from style.py on startup.
+refresh_style_from_module()
+
 # Day names (Day 1 = Monday)
 DAY_NAMES = [
     "Monday",
@@ -175,6 +162,12 @@ SHOP_CSV = os.path.join(DATA_DIR, "shop.csv")
 INV_CSV = os.path.join(DATA_DIR, "inventory.csv")
 TXN_CSV = os.path.join(DATA_DIR, "transactions.csv")
 PLAYER_CSV = os.path.join(DATA_DIR, "player.csv")
+
+# Path to the cosmetics catalogue.  Cosmetics such as themes, screensavers
+# and UI skins are defined in this CSV with columns: name, type,
+# unlocked (true/false) and price.  It is created on first run if
+# missing by seed_cosmetics_if_missing().
+COSMETICS_CSV = os.path.join(DATA_DIR, "cosmetics.csv")
 
 # News CSV file paths
 NEWS_CSV = os.path.join(DATA_DIR, "news.csv")
@@ -225,23 +218,31 @@ def seed_items_if_missing():
     """Create a starter items.csv if none exists."""
     if os.path.exists(ITEMS_CSV):
         return
+    # Define the starter item set.  Two new columns are included: "type"
+    # identifies whether an item is RAW, REFINED or NULL (no crafting), and
+    # "crafting_output" holds the SKU of the item produced when crafting.  A
+    # NULL type indicates the item does not participate in crafting.
     starter = [
-        {"sku":"A100","description":"Iron Ingot","image":"iron.png","price":"10"},
-        {"sku":"A110","description":"Copper Wire","image":"copper.png","price":"8"},
-        {"sku":"A120","description":"Wood Plank","image":"wood.png","price":"5"},
-        {"sku":"A130","description":"Health Potion","image":"potion.png","price":"15"},
-        {"sku":"A140","description":"Leather Roll","image":"leather.png","price":"12"},
-        {"sku":"A150","description":"Crystal Shard","image":"crystal.png","price":"22"},
-        {"sku":"A160","description":"Coal Lump","image":"coal.png","price":"6"},
-        {"sku":"A170","description":"Glass Bottle","image":"bottle.png","price":"7"},
-        {"sku":"A180","description":"Gear Wheel","image":"gear.png","price":"18"},
-        {"sku":"A190","description":"Cloth Bundle","image":"cloth.png","price":"9"},
-        {"sku":"A200","description":"Silver Nugget","image":"silver.png","price":"28"},
-        {"sku":"A210","description":"Magic Ink","image":"ink.png","price":"25"},
-        {"sku":"A220","description":"Spice Pouch","image":"spice.png","price":"14"},
-        {"sku":"A230","description":"Stone Brick","image":"stone.png","price":"4"},
+        # RAW materials
+        {"sku":"A100","description":"Iron Ingot","image":"iron.png","price":"10","type":"RAW","crafting_output":"A180"},
+        {"sku":"A170","description":"Glass Bottle","image":"bottle.png","price":"7","type":"RAW","crafting_output":"A130"},
+        {"sku":"A120","description":"Wood Plank","image":"wood.png","price":"5","type":"NULL","crafting_output":""},
+        # REFINED or intermediate items
+        {"sku":"A130","description":"Health Potion","image":"potion.png","price":"15","type":"REFINED","crafting_output":""},
+        {"sku":"A180","description":"Gear Wheel","image":"gear.png","price":"18","type":"REFINED","crafting_output":""},
+        {"sku":"A190","description":"Cloth Bundle","image":"cloth.png","price":"9","type":"REFINED","crafting_output":""},
+        {"sku":"A220","description":"Spice Pouch","image":"spice.png","price":"14","type":"REFINED","crafting_output":"A190"},
+        # Other miscellaneous items which are non‑craftable
+        {"sku":"A110","description":"Copper Wire","image":"copper.png","price":"8","type":"NULL","crafting_output":""},
+        {"sku":"A140","description":"Leather Roll","image":"leather.png","price":"12","type":"NULL","crafting_output":""},
+        {"sku":"A150","description":"Crystal Shard","image":"crystal.png","price":"22","type":"NULL","crafting_output":""},
+        {"sku":"A160","description":"Coal Lump","image":"coal.png","price":"6","type":"NULL","crafting_output":""},
+        {"sku":"A200","description":"Silver Nugget","image":"silver.png","price":"28","type":"NULL","crafting_output":""},
+        {"sku":"A210","description":"Magic Ink","image":"ink.png","price":"25","type":"NULL","crafting_output":""},
+        {"sku":"A230","description":"Stone Brick","image":"stone.png","price":"4","type":"NULL","crafting_output":""},
     ]
-    write_csv_dicts(ITEMS_CSV, ["sku","description","image","price"], starter)
+    # Write out with the new header that includes type and crafting_output
+    write_csv_dicts(ITEMS_CSV, ["sku","description","image","price","type","crafting_output"], starter)
 
 
 def load_items():
@@ -254,11 +255,16 @@ def load_items():
             base_price = float(r.get("price","0") or 0)
         except ValueError:
             base_price = 0.0
+        # Normalise crafting fields; default to NULL/empty if missing
+        craft_type = r.get("type", "NULL") or "NULL"
+        craft_out = r.get("crafting_output", "") or ""
         items[r["sku"]] = {
             "sku": r["sku"],
             "description": r.get("description",""),
             "image": r.get("image",""),
             "base_price": base_price,
+            "craft_type": craft_type.upper(),
+            "craft_output": craft_out,
         }
     return items
 
@@ -340,15 +346,93 @@ def save_inventory(inv):
         })
     write_csv_dicts(INV_CSV, ["sku","qty_onhand","avg_cost"], rows)
 
+# ---------------------------------------------------------------------------
+# Cosmetics helpers
+#
+# Cosmetics include unlockable themes, screensavers and UI skins.  They are
+# stored in cosmetics.csv and loaded at runtime.  Each record has fields:
+# name, type (theme/screensaver/ui), unlocked ("true"/"false"), and price
+# (string).  Unlocked cosmetics will be shown as selectable in the Store.
+
+def seed_cosmetics_if_missing():
+    """
+    Initialise cosmetics.csv with a default set of themes, screensavers and
+    UI skins.  If the file already exists it is left unchanged.  The
+    default set includes one free theme and UI skin and several purchasable
+    options.  You can add more entries here to expand the catalogue.
+    """
+    if os.path.exists(COSMETICS_CSV):
+        return
+    cosmetics = [
+        # Themes
+        {"name": "Default", "type": "theme", "unlocked": "true", "price": "0"},
+        {"name": "Monochrome Green", "type": "theme", "unlocked": "false", "price": "20"},
+        # UI skins
+        {"name": "Classic", "type": "ui", "unlocked": "true", "price": "0"},
+        {"name": "Rounded", "type": "ui", "unlocked": "false", "price": "15"},
+        # Screensavers
+        {"name": "None", "type": "screensaver", "unlocked": "true", "price": "0"},
+        {"name": "Bouncing Item", "type": "screensaver", "unlocked": "false", "price": "10"},
+    ]
+    write_csv_dicts(COSMETICS_CSV, ["name","type","unlocked","price"], cosmetics)
+
+
+def load_cosmetics():
+    """Load the cosmetics catalogue into a list of dictionaries."""
+    seed_cosmetics_if_missing()
+    rows = read_csv_dicts(COSMETICS_CSV)
+    # Normalize unlocked to a boolean string (lowercase)
+    out = []
+    for r in rows:
+        rec = {
+            "name": r.get("name", ""),
+            "type": r.get("type", "").lower(),
+            "unlocked": str(r.get("unlocked", "false")).lower() == "true",
+        }
+        # price may be missing or malformed
+        try:
+            rec["price"] = float(r.get("price", "0") or 0.0)
+        except Exception:
+            rec["price"] = 0.0
+        out.append(rec)
+    return out
+
+
+def save_cosmetics(rows):
+    """
+    Persist the cosmetics catalogue back to cosmetics.csv.  Expects a list of
+    dictionaries matching the structure returned by load_cosmetics().
+    """
+    # Convert boolean unlocked to lower-case string for CSV storage
+    to_write = []
+    for r in rows:
+        to_write.append({
+            "name": r.get("name", ""),
+            "type": r.get("type", ""),
+            "unlocked": "true" if r.get("unlocked", False) else "false",
+            "price": f"{r.get('price', 0.0):.2f}",
+        })
+    write_csv_dicts(COSMETICS_CSV, ["name","type","unlocked","price"], to_write)
+
 
 def init_player_if_missing(starting_cash=DEFAULT_STARTING_CASH):
     """Create a default player.csv if missing."""
     if os.path.exists(PLAYER_CSV):
         return
+    # Initialise player.csv with additional fields for theme, screensaver and UI skin.
     write_csv_dicts(
         PLAYER_CSV,
-        ["cash","capacity","day","cap_change_week"],
-        [{"cash": f"{starting_cash:.2f}", "capacity": str(DEFAULT_CAPACITY), "day": "1", "cap_change_week": "0"}]
+        ["cash","capacity","day","cap_change_week","theme","screensaver","ui_skin"],
+        [{
+            "cash": f"{starting_cash:.2f}",
+            "capacity": str(DEFAULT_CAPACITY),
+            "day": "1",
+            "cap_change_week": "0",
+            # Default selections correspond to the built‑in free cosmetics
+            "theme": style.CURRENT_THEME,
+            "screensaver": "None",
+            "ui_skin": style.CURRENT_UI_SKIN,
+        }]
     )
 
 
@@ -364,18 +448,27 @@ def load_player():
         "capacity": int(float(r.get("capacity","0") or 0)),
         "day": int(float(r.get("day","1") or 1)),
         "cap_change_week": int(float(r.get("cap_change_week","0") or 0)),
+        # Persisted cosmetic selections; fall back to current defaults if missing
+        "theme": r.get("theme", style.CURRENT_THEME) or style.CURRENT_THEME,
+        "screensaver": r.get("screensaver", "None") or "None",
+        "ui_skin": r.get("ui_skin", style.CURRENT_UI_SKIN) or style.CURRENT_UI_SKIN,
     }
 
 
 def save_player(player):
     """Persist player state to player.csv."""
+    # Include cosmetic selections in the persisted player state
     write_csv_dicts(
-        PLAYER_CSV, ["cash","capacity","day","cap_change_week"],
+        PLAYER_CSV,
+        ["cash","capacity","day","cap_change_week","theme","screensaver","ui_skin"],
         [{
             "cash": f"{player['cash']:.2f}",
             "capacity": str(player["capacity"]),
             "day": str(player["day"]),
             "cap_change_week": str(int(player.get("cap_change_week", 0))),
+            "theme": player.get("theme", style.CURRENT_THEME),
+            "screensaver": player.get("screensaver", "None"),
+            "ui_skin": player.get("ui_skin", style.CURRENT_UI_SKIN),
         }]
     )
 
@@ -830,8 +923,10 @@ class RetroButton:
     def draw(self, surf, font):
         if not self.visible:
             return
-        # fill background
-        pygame.draw.rect(surf, COLOR_CONTROL_BACKGROUND, self.rect)
+        # fill background with current skin border radius
+        # Use UI_BORDER_RADIUS from style to round corners when the user selects
+        # a different UI skin.  Default is 0 for square corners.
+        pygame.draw.rect(surf, COLOR_CONTROL_BACKGROUND, self.rect, border_radius=UI_BORDER_RADIUS)
         # Determine shading: when pressed invert light/dark
         if self.pressed:
             tl_col = COLOR_CONTROL_BORDER_DARK
@@ -876,6 +971,12 @@ def main():
     items = load_items()
     init_shop_from_items(items)
     init_inventory_if_missing()
+
+    # Screensaver manager and idle tracking.  Create this early so it exists
+    # throughout the game.  We pass our image loader so the screensaver can
+    # load icons using the same placeholder logic as the rest of the UI.
+    ss_manager = screensaver.ScreensaverManager(load_image_or_placeholder)
+    idle_timer = 0.0
 
     # Start screen state
     start_input = InputBox((0, 0, 100, 24), text=str(DEFAULT_STARTING_CASH), numeric=True)
@@ -934,6 +1035,28 @@ def main():
     # Chat scroll buttons
     chat_up_btn = None
     chat_down_btn = None
+
+    # Store tab and sub‑category widgets
+    tab_store_btn = None
+    # Which sub‑tab is active within the Store: "cosmetics", "crafting" or "inventory"
+    store_sub_tab = "cosmetics"
+    # Dynamic widget lists for the Store categories.  These will hold
+    # RetroButtons and InputBoxes for cosmetics, crafting and inventory
+    # upgrades respectively.  Their contents are managed by update_store_widgets().
+    store_cos_buttons = []
+    store_craft_inputs = []
+    store_craft_buttons = []
+    store_inv_add_buttons = []
+    store_inv_remove_buttons = []
+    store_inv_custom_add_input = None
+    store_inv_custom_remove_input = None
+    # In‑memory catalogue of cosmetics loaded from cosmetics.csv
+    cosmetics_list = []
+
+    # Store sub‑tab button placeholders (cosmetics, crafting, inventory)
+    store_cos_tab_btn = None
+    store_craft_tab_btn = None
+    store_inv_tab_btn = None
 
     toast = ""
     toast_timer = 0
@@ -1067,6 +1190,233 @@ def main():
                 inv_buttons[i].visible = False
                 inv_inputs[i].text = ""
                 inv_inputs[i].active = False
+
+    # -----------------------------------------------------------------
+    # Store widget assignment
+    def update_store_widgets():
+        """
+        Update callbacks and visibility for the dynamic widgets used in the
+        store.  This includes cosmetics purchase/select buttons, crafting
+        quantity inputs and convert buttons, and inventory upgrade buttons.
+        This function should be called whenever the cosmetics list, player
+        inventory or capacity changes so that the UI reflects the latest
+        data.
+        """
+        nonlocal store_cos_buttons, store_craft_inputs, store_craft_buttons
+        nonlocal store_inv_add_buttons, store_inv_remove_buttons
+        nonlocal store_inv_custom_add_input, store_inv_custom_remove_input
+        # Make the screensaver manager available inside this helper so we can
+        # update the active screensaver when the player selects a different one.
+        nonlocal ss_manager
+        # Cosmetics: one button per cosmetic entry
+        # Ensure we have enough buttons
+        while len(store_cos_buttons) < len(cosmetics_list):
+            store_cos_buttons.append(RetroButton(pygame.Rect(0,0,80,20), "", lambda: None))
+        for i, cos in enumerate(cosmetics_list):
+            # Determine label based on unlocked state
+            label = "Select" if cos["unlocked"] else f"Buy ${int(cos['price'])}"
+            store_cos_buttons[i].label = label
+            # Define callback capturing the current cosmetic
+            def make_cos_cb(idx=i, cos=cos):
+                def _cb():
+                    # Unlocked items can be selected
+                    if cosmetics_list[idx]["unlocked"]:
+                        name = cosmetics_list[idx]["name"]
+                        ctype = cosmetics_list[idx]["type"]
+                        # apply and update player selection
+                        if ctype == "theme":
+                            player["theme"] = name
+                            style.apply_theme(name)
+                            refresh_style_from_module()
+                        elif ctype == "ui":
+                            player["ui_skin"] = name
+                            style.apply_ui_skin(name)
+                            refresh_style_from_module()
+                        elif ctype == "screensaver":
+                            # Update both the player record and the
+                            # screensaver manager so the change takes
+                            # effect immediately.
+                            player["screensaver"] = name
+                            ss_manager.set(name)
+                        save_player(player)
+                        set_toast(f"Selected {name}")
+                    else:
+                        # Attempt to purchase if locked
+                        price = cosmetics_list[idx]["price"]
+                        if player["cash"] < price:
+                            set_toast("Not enough cash to buy " + cosmetics_list[idx]["name"])
+                            return
+                        player["cash"] -= price
+                        cosmetics_list[idx]["unlocked"] = True
+                        save_player(player)
+                        save_cosmetics(cosmetics_list)
+                        set_toast(f"Purchased {cosmetics_list[idx]['name']}")
+                    # After purchase or selection, refresh widgets
+                    update_store_widgets()
+                return _cb
+            store_cos_buttons[i].callback = make_cos_cb()
+            store_cos_buttons[i].visible = True
+        # Hide any extra buttons
+        for i in range(len(cosmetics_list), len(store_cos_buttons)):
+            store_cos_buttons[i].visible = False
+
+        # Crafting: generate craftable rows based on current inventory and items
+        craftables = []
+        for sku, itm in inv.items():
+            info = items.get(sku, {})
+            craft_type = info.get("craft_type", "NULL")
+            out_sku = info.get("craft_output", "")
+            if craft_type in ("RAW", "REFINED") and out_sku:
+                # Only craft if output exists in items
+                if out_sku in items:
+                    craftables.append((sku, out_sku))
+        # Ensure enough inputs/buttons
+        while len(store_craft_inputs) < len(craftables):
+            store_craft_inputs.append(InputBox((0,0,60,20), text="", numeric=True))
+            store_craft_buttons.append(RetroButton(pygame.Rect(0,0,60,20), "Convert", lambda: None))
+        # Assign callbacks
+        for i, (in_sku, out_sku) in enumerate(craftables):
+            def make_craft_cb(idx=i, in_sku=in_sku, out_sku=out_sku):
+                def _cb():
+                    qty = store_craft_inputs[idx].value_int()
+                    if qty <= 0:
+                        set_toast("Enter qty > 0")
+                        return
+                    if inv[in_sku]["qty"] < qty:
+                        set_toast("Not enough to convert")
+                        return
+                    # cost is 5% of current shop price of output per item
+                    unit_cost = shop[out_sku]["buy_price"] * 0.05
+                    total_cost = unit_cost * qty
+                    if player["cash"] < total_cost:
+                        set_toast("Not enough cash to craft")
+                        return
+                    # apply transaction
+                    inv[in_sku]["qty"] -= qty
+                    if inv[in_sku]["qty"] <= 0:
+                        del inv[in_sku]
+                    # add output
+                    if out_sku not in inv:
+                        inv[out_sku] = {"sku": out_sku, "qty": 0, "avg_cost": 0.0}
+                    inv[out_sku]["qty"] += qty
+                    # Deduct cash
+                    player["cash"] -= total_cost
+                    # Log the crafting transaction
+                    log_txn(player["day"], f"{in_sku}->{out_sku}", "CRAFT", qty, unit_cost, total_cost, player["cash"])
+                    save_player(player)
+                    save_inventory(inv)
+                    # After crafting, update widgets
+                    set_toast(f"Crafted {qty} of {out_sku}")
+                    update_store_widgets()
+                return _cb
+            store_craft_buttons[i].label = "Convert"
+            store_craft_buttons[i].callback = make_craft_cb()
+            store_craft_buttons[i].visible = True
+            store_craft_inputs[i].active = False
+        # Hide any extra craft widgets
+        for i in range(len(craftables), len(store_craft_buttons)):
+            store_craft_buttons[i].visible = False
+            store_craft_inputs[i].text = ""
+
+        # Inventory upgrades: quick buttons for add and remove and custom inputs
+        # The available multipliers depend on current capacity
+        increments = [1, 5, 10, 100]
+        # Ensure enough buttons: one per increment plus one for custom
+        total_buttons = len(increments) + 1
+        # Expand button lists if needed
+        while len(store_inv_add_buttons) < total_buttons:
+            store_inv_add_buttons.append(RetroButton(pygame.Rect(0,0,60,20), "+", lambda: None))
+        while len(store_inv_remove_buttons) < total_buttons:
+            store_inv_remove_buttons.append(RetroButton(pygame.Rect(0,0,60,20), "-", lambda: None))
+
+        # Define helper to make capacity change callbacks
+        def make_add_cb(amount):
+            def _cb():
+                nonlocal player
+                cost = amount
+                # For Add, cost = amount; check affordability
+                if player["cash"] < cost:
+                    set_toast("Not enough cash to increase capacity")
+                    return
+                player["capacity"] += amount
+                player["cash"] -= cost
+                save_player(player)
+                set_toast(f"Increased capacity by {amount}")
+                update_store_widgets()
+            return _cb
+        def make_remove_cb(amount):
+            def _cb():
+                nonlocal player
+                used = inv_used_units(inv)
+                cost = amount
+                if player["capacity"] - amount < used:
+                    set_toast("Cannot reduce below items held")
+                    return
+                if player["cash"] < cost:
+                    set_toast("Not enough cash to decrease capacity")
+                    return
+                player["capacity"] -= amount
+                player["cash"] -= cost
+                save_player(player)
+                set_toast(f"Decreased capacity by {amount}")
+                update_store_widgets()
+            return _cb
+
+        # Assign labels and callbacks for each quick increment button
+        # Visibility depends on current storage capacity.  The spec requires
+        # always showing the x1 buttons but enabling the x5, x10 and
+        # x100 buttons only when the player's capacity is at least that
+        # amount.  To satisfy this requirement we mark the buttons
+        # visible when the threshold is met and hide them otherwise.
+        for i, inc in enumerate(increments):
+            add_btn = store_inv_add_buttons[i]
+            add_btn.label = f"+{inc}"
+            add_btn.callback = make_add_cb(inc)
+            rem_btn = store_inv_remove_buttons[i]
+            rem_btn.label = f"-{inc}"
+            rem_btn.callback = make_remove_cb(inc)
+            # Always show x1 buttons; hide others if capacity below threshold
+            if inc == 1 or player["capacity"] >= inc:
+                add_btn.visible = True
+                rem_btn.visible = True
+            else:
+                add_btn.visible = False
+                rem_btn.visible = False
+        # Custom buttons (last index)
+        custom_idx = len(increments)
+        # Add custom button uses value from store_inv_custom_add_input
+        def add_custom():
+            try:
+                amt = store_inv_custom_add_input.value_int()
+            except Exception:
+                amt = 0
+            if amt <= 0:
+                set_toast("Enter a positive number")
+                return
+            make_add_cb(amt)()
+        def remove_custom():
+            try:
+                amt = store_inv_custom_remove_input.value_int()
+            except Exception:
+                amt = 0
+            if amt <= 0:
+                set_toast("Enter a positive number")
+                return
+            make_remove_cb(amt)()
+        # Create or update custom buttons
+        # Create or update custom buttons.  These are always visible
+        if custom_idx >= len(store_inv_add_buttons):
+            store_inv_add_buttons.append(RetroButton(pygame.Rect(0,0,60,20), "Add", add_custom))
+        else:
+            store_inv_add_buttons[custom_idx].label = "Add"
+            store_inv_add_buttons[custom_idx].callback = add_custom
+        store_inv_add_buttons[custom_idx].visible = True
+        if custom_idx >= len(store_inv_remove_buttons):
+            store_inv_remove_buttons.append(RetroButton(pygame.Rect(0,0,60,20), "Remove", remove_custom))
+        else:
+            store_inv_remove_buttons[custom_idx].label = "Remove"
+            store_inv_remove_buttons[custom_idx].callback = remove_custom
+        store_inv_remove_buttons[custom_idx].visible = True
 
     # Functions for scroll buttons
     def scroll_shop_up():
@@ -1245,10 +1595,20 @@ def main():
 
     running = True
     while running:
-        clock.tick(FPS)
+        # Compute elapsed time for this frame in seconds.  We use this
+        # delta both for the screensaver movement and to update our
+        # idle timer.  Using clock.tick here returns milliseconds.
+        dt = clock.tick(FPS) / 1000.0
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            # Any mouse or keyboard interaction resets the idle timer and
+            # hides the screensaver.  We treat motion, button presses and
+            # key presses as activity.
+            if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP,
+                              pygame.KEYDOWN, pygame.KEYUP):
+                idle_timer = 0.0
+                ss_manager.deactivate()
             if mode == "start":
                 # Start screen events
                 start_input.handle_event(event)
@@ -1262,6 +1622,9 @@ def main():
                 tab_market_btn.handle_event(event)
                 tab_weekly_btn.handle_event(event)
                 tab_news_btn.handle_event(event)
+                # Store tab
+                if tab_store_btn:
+                    tab_store_btn.handle_event(event)
 
                 # Next day button is available on both tabs
                 next_day_btn.handle_event(event)
@@ -1290,6 +1653,34 @@ def main():
                     # News tab: navigation arrows
                     news_prev_btn.handle_event(event)
                     news_next_btn.handle_event(event)
+                elif app_tab == "store":
+                    # Handle sub‑tab navigation within the store
+                    store_cos_tab_btn.handle_event(event)
+                    store_craft_tab_btn.handle_event(event)
+                    store_inv_tab_btn.handle_event(event)
+                    # Cosmetics interactions
+                    if store_sub_tab == "cosmetics":
+                        for btn in store_cos_buttons:
+                            if btn.visible:
+                                btn.handle_event(event)
+                    # Crafting interactions
+                    elif store_sub_tab == "crafting":
+                        for ib in store_craft_inputs:
+                            ib.handle_event(event)
+                        for btn in store_craft_buttons:
+                            if btn.visible:
+                                btn.handle_event(event)
+                    # Inventory upgrades interactions
+                    elif store_sub_tab == "inventory":
+                        # Custom inputs for add/remove
+                        if store_inv_custom_add_input:
+                            store_inv_custom_add_input.handle_event(event)
+                        if store_inv_custom_remove_input:
+                            store_inv_custom_remove_input.handle_event(event)
+                        # Quick buttons
+                        for btn in store_inv_add_buttons + store_inv_remove_buttons:
+                            if btn.visible:
+                                btn.handle_event(event)
 
                 # chat scroll buttons (visible on both tabs)
                 chat_up_btn.handle_event(event)
@@ -1299,10 +1690,29 @@ def main():
                 buy_space_btn.handle_event(event)
 
         # update hover states for buttons
+
+        # Update idle timer and screensaver.  Only run the screensaver in the
+        # main game (not on the start screen) and only when the player has
+        # selected a screensaver other than "None".
+        idle_timer += dt
+        if mode != "start":
+            try:
+                sel_name = player.get("screensaver", "None") if player else "None"
+            except Exception:
+                sel_name = "None"
+            # Activate the screensaver if we've been idle long enough and it's not already active.
+            if idle_timer >= screensaver.DEFAULT_IDLE_SECONDS and not ss_manager.is_active() and sel_name.lower() != "none":
+                ss_manager.set(sel_name)
+                ss_manager.activate(items)
+            # Always update the screensaver so that the bouncing object moves if active.
+            ss_manager.update(dt, screen.get_rect())
         if mode != "start":
             tab_market_btn.update()
             tab_weekly_btn.update()
             tab_news_btn.update()
+            # Store tab exists only after game starts
+            if tab_store_btn:
+                tab_store_btn.update()
             next_day_btn.update()
             chat_up_btn.update()
             chat_down_btn.update()
@@ -1322,6 +1732,24 @@ def main():
             elif app_tab == "news":
                 news_prev_btn.update()
                 news_next_btn.update()
+            elif app_tab == "store":
+                # Update store sub‑tab navigation buttons
+                store_cos_tab_btn.update()
+                store_craft_tab_btn.update()
+                store_inv_tab_btn.update()
+                # Update dynamic buttons for the active sub‑tab
+                if store_sub_tab == "cosmetics":
+                    for btn in store_cos_buttons:
+                        if btn.visible:
+                            btn.update()
+                elif store_sub_tab == "crafting":
+                    for btn in store_craft_buttons:
+                        if btn.visible:
+                            btn.update()
+                elif store_sub_tab == "inventory":
+                    for btn in store_inv_add_buttons + store_inv_remove_buttons:
+                        if btn.visible:
+                            btn.update()
             # update chat scroll buttons
             buy_space_btn.update()
 
@@ -1373,13 +1801,18 @@ def main():
                 btn_rect.center = (win_rect.centerx, label_y + 60)
                 def on_start():
                     nonlocal player, shop, inv, shop_offset, inv_offset, cash_history
-                    nonlocal next_day_btn, tab_market_btn, tab_weekly_btn, tab_news_btn
+                    nonlocal next_day_btn, tab_market_btn, tab_weekly_btn, tab_news_btn, tab_store_btn
                     nonlocal buy_space_btn, inc_space_btn, dec_space_btn
                     nonlocal report_prev_btn, report_next_btn, selected_report_week
                     nonlocal news_prev_btn, news_next_btn, selected_news_week
                     nonlocal up_shop_btn, down_shop_btn, up_inv_btn, down_inv_btn
-                    nonlocal app_tab
+                    nonlocal app_tab, store_sub_tab
                     nonlocal chat_messages, chat_offset, avg_buy_prices, chat_up_btn, chat_down_btn
+                    nonlocal store_cos_buttons, store_craft_inputs, store_craft_buttons
+                    nonlocal store_inv_add_buttons, store_inv_remove_buttons
+                    nonlocal store_inv_custom_add_input, store_inv_custom_remove_input
+                    nonlocal cosmetics_list
+                    nonlocal store_cos_tab_btn, store_craft_tab_btn, store_inv_tab_btn
                     try:
                         starting_cash = start_input.value_int()
                     except Exception:
@@ -1405,6 +1838,67 @@ def main():
                     chat_offset = 0
                     # initialise average buy prices for each SKU with current buy price
                     avg_buy_prices = {sku: shop[sku]["buy_price"] for sku in shop.keys()}
+
+                    # -----------------------------------------------------------------
+                    # Load cosmetics catalogue and apply player selected cosmetic options
+                    # Seed the cosmetics file if necessary
+                    seed_cosmetics_if_missing()
+                    cosmetics_list = load_cosmetics()
+                    # Apply the player's selected theme and UI skin immediately so the
+                    # interface reflects their last choice at the start of the game.
+                    style.apply_theme(player.get("theme", style.CURRENT_THEME))
+                    style.apply_ui_skin(player.get("ui_skin", style.CURRENT_UI_SKIN))
+                    # Refresh our locally cached style constants so colours and
+                    # border radii update instantly.  Without this call the UI
+                    # would remain stuck on the previous theme/skin values.
+                    refresh_style_from_module()
+                    # Configure the screensaver to the player's stored choice.  If
+                    # "None" this effectively disables the screensaver until they
+                    # select another option in the Store.
+                    ss_manager.set(player.get("screensaver", "None"))
+
+                    # -----------------------------------------------------------------
+                    # Create the Store tab and its sub‑tab buttons.  Clicking the Store
+                    # tab switches the top‑level app_tab to "store".  Within the Store
+                    # players can navigate between Cosmetics, Crafting and Inventory
+                    # upgrades via sub‑tab buttons.  All buttons are created here and
+                    # their positions are adjusted during the draw phase.
+                    def go_store():
+                        nonlocal app_tab
+                        app_tab = "store"
+                    tab_store_btn = RetroButton(pygame.Rect(0,0,100,24), "Store", go_store)
+                    # Sub‑tab callbacks
+                    def go_cosmetics():
+                        nonlocal store_sub_tab
+                        store_sub_tab = "cosmetics"
+                        # Refresh dynamic widgets when switching tabs so the
+                        # displayed controls (e.g. quantity inputs) match the
+                        # current inventory and cosmetic state.
+                        update_store_widgets()
+
+                    def go_crafting():
+                        nonlocal store_sub_tab
+                        store_sub_tab = "crafting"
+                        update_store_widgets()
+
+                    def go_inventory():
+                        nonlocal store_sub_tab
+                        store_sub_tab = "inventory"
+                        update_store_widgets()
+                    store_cos_tab_btn = RetroButton(pygame.Rect(0,0,120,24), "Cosmetics", go_cosmetics)
+                    store_craft_tab_btn = RetroButton(pygame.Rect(0,0,120,24), "Crafting", go_crafting)
+                    store_inv_tab_btn = RetroButton(pygame.Rect(0,0,120,24), "Inventory", go_inventory)
+                    # Reset dynamic store widget lists and custom inputs
+                    store_cos_buttons = []
+                    store_craft_inputs = []
+                    store_craft_buttons = []
+                    store_inv_add_buttons = []
+                    store_inv_remove_buttons = []
+                    store_inv_custom_add_input = InputBox((0,0,60,20), text="", numeric=True)
+                    store_inv_custom_remove_input = InputBox((0,0,60,20), text="", numeric=True)
+
+                    # Initialise store widgets based on current inventory and capacity
+                    update_store_widgets()
                     # create scroll buttons and action buttons
                     # positions depend on layout, will update during draw
                     next_day_btn = RetroButton(pygame.Rect(0,0,100,30), "Next Day", advance_day)
@@ -1426,6 +1920,9 @@ def main():
                     # Storage buttons live on the Weekly Report tab
                     inc_space_btn = RetroButton(pygame.Rect(0,0,160,30), "Increase Inventory", increase_space)
                     dec_space_btn = RetroButton(pygame.Rect(0,0,160,30), "Decrease Inventory", decrease_space)
+                    # Hide the legacy inventory buttons since capacity is now adjusted via the Store
+                    inc_space_btn.visible = False
+                    dec_space_btn.visible = False
 
                     # Weekly report navigation (prev/next week)
                     def report_prev():
@@ -1563,14 +2060,20 @@ def main():
             # Position the tab buttons relative to the HUD.  Tabs are laid out
             # horizontally with a small gap between them.  The market tab
             # anchors at an offset from the left of the HUD.
+            # Position the primary tabs horizontally.  Place the Market tab at a
+            # fixed offset within the HUD and space subsequent tabs by 5px.
             tab_market_btn.rect.topleft = (hud_rect.x + 420, hud_rect.y + 6)
-            # weekly tab starts after the market tab plus a 5px gap
             tab_weekly_btn.rect.topleft = (tab_market_btn.rect.right + 5, hud_rect.y + 6)
-            # news tab starts after the weekly tab plus a 5px gap
             tab_news_btn.rect.topleft = (tab_weekly_btn.rect.right + 5, hud_rect.y + 6)
+            # The Store tab appears after the News tab once the game has started
+            if tab_store_btn:
+                tab_store_btn.rect.topleft = (tab_news_btn.rect.right + 5, hud_rect.y + 6)
+            # Draw the tabs
             tab_market_btn.draw(screen, font_small)
             tab_weekly_btn.draw(screen, font_small)
             tab_news_btn.draw(screen, font_small)
+            if tab_store_btn:
+                tab_store_btn.draw(screen, font_small)
 
             # Position action buttons next to HUD
             next_day_btn.rect.topleft = (hud_rect.right - 220, hud_rect.y + 4)
@@ -2001,6 +2504,250 @@ def main():
                         screen.blit(font_small.render(f"Expected duration in days this will last: {dur}", True, COLOR_CONTROL_TEXT), (content_x, y_cursor))
                         y_cursor += line_height + 6  # extra space before next item
 
+            # -----------------------------------------------------------------
+            # Store tab overlay
+            # When the Store tab is active this section renders the store
+            # interface with sub‑tabs for cosmetics, crafting and inventory.
+            if app_tab == "store":
+                # Define the panel for the store overlay covering both tables
+                store_panel = pygame.Rect(left_table_x, table_top_y, (TABLE_WIDTH * 2) + SPACING, REPORT_HEIGHT)
+                # Background and border
+                pygame.draw.rect(screen, COLOR_WINDOW, store_panel)
+                pygame.draw.rect(screen, COLOR_WINDOW_BORDER_DARK, store_panel, 1)
+                # Header bar
+                store_header = pygame.Rect(store_panel.x, store_panel.y, store_panel.width, HEADER_HEIGHT)
+                pygame.draw.rect(screen, COLOR_TABLE_HEADER, store_header)
+                store_title = font_medium.render("Store", True, COLOR_TABLE_HEADER_TEXT)
+                screen.blit(store_title, (store_header.x + 6, store_header.y + (HEADER_HEIGHT - store_title.get_height())//2))
+                # Define dimensions for sub‑tab navigation and content area
+                sub_width = 140
+                content_x = store_panel.x + sub_width + 8
+                content_y = store_header.bottom + 4
+                content_width = store_panel.width - sub_width - 12
+                content_height = store_panel.height - HEADER_HEIGHT - 8
+                # Draw sub‑tab navigation area background
+                sub_rect = pygame.Rect(store_panel.x + 4, store_header.bottom + 4, sub_width - 8, store_panel.height - HEADER_HEIGHT - 8)
+                pygame.draw.rect(screen, COLOR_WINDOW, sub_rect)
+                pygame.draw.rect(screen, COLOR_WINDOW_BORDER_DARK, sub_rect, 1)
+                # Position sub‑tab buttons vertically
+                btn_h = 28
+                btn_pad = 4
+                # Cosmetics tab
+                store_cos_tab_btn.rect.topleft = (sub_rect.x + 4, sub_rect.y + 4)
+                store_cos_tab_btn.rect.size = (sub_rect.width - 8, btn_h)
+                # Highlight active tab visually WITHOUT breaking click handling.
+                _prev_pressed = store_cos_tab_btn.pressed
+                store_cos_tab_btn.pressed = _prev_pressed or (store_sub_tab == "cosmetics")
+                store_cos_tab_btn.draw(screen, font_small)
+                store_cos_tab_btn.pressed = _prev_pressed
+                # Crafting tab
+                store_craft_tab_btn.rect.topleft = (sub_rect.x + 4, sub_rect.y + 4 + (btn_h + btn_pad))
+                store_craft_tab_btn.rect.size = (sub_rect.width - 8, btn_h)
+                _prev_pressed = store_craft_tab_btn.pressed
+                store_craft_tab_btn.pressed = _prev_pressed or (store_sub_tab == "crafting")
+                store_craft_tab_btn.draw(screen, font_small)
+                store_craft_tab_btn.pressed = _prev_pressed
+                # Inventory tab
+                store_inv_tab_btn.rect.topleft = (sub_rect.x + 4, sub_rect.y + 4 + 2 * (btn_h + btn_pad))
+                store_inv_tab_btn.rect.size = (sub_rect.width - 8, btn_h)
+                _prev_pressed = store_inv_tab_btn.pressed
+                store_inv_tab_btn.pressed = _prev_pressed or (store_sub_tab == "inventory")
+                store_inv_tab_btn.draw(screen, font_small)
+                store_inv_tab_btn.pressed = _prev_pressed
+                # Draw content based on active sub‑tab
+                if store_sub_tab == "cosmetics":
+                    # Cosmetics: list available cosmetics with status and buy/select buttons
+                    row_h = 26
+                    # Column widths: Name, Type, Status, Button
+                    col1 = 240
+                    col2 = 120
+                    col3 = 120
+                    col4 = 100
+                    for i, cos in enumerate(cosmetics_list):
+                        row_y = content_y + i * row_h
+                        # alternating row colour
+                        row_col = COLOR_ROW_LIGHT if i % 2 == 0 else COLOR_ROW_DARK
+                        pygame.draw.rect(screen, row_col, (content_x, row_y, content_width, row_h))
+                        # Name
+                        name_surf = font_small.render(cos["name"], True, COLOR_CONTROL_TEXT)
+                        screen.blit(name_surf, (content_x + 4, row_y + 6))
+                        # Type
+                        type_str = cos["type"].capitalize()
+                        type_surf = font_small.render(type_str, True, COLOR_CONTROL_TEXT)
+                        screen.blit(type_surf, (content_x + col1 + 4, row_y + 6))
+                        # Status/Price
+                        status_text = "Unlocked" if cos.get("unlocked") else f"$ {int(cos.get('price',0))}"
+                        status_col = COLOR_CONTROL_TEXT
+                        stat_surf = font_small.render(status_text, True, status_col)
+                        screen.blit(stat_surf, (content_x + col1 + col2 + 4, row_y + 6))
+                        # Button
+                        if i < len(store_cos_buttons):
+                            btn = store_cos_buttons[i]
+                            # set button rect relative to this row
+                            btn_w = col4 - 8
+                            btn_h2 = row_h - 8
+                            btn.rect = pygame.Rect(content_x + col1 + col2 + col3 + 4, row_y + 4, btn_w, btn_h2)
+                            btn.draw(screen, font_small)
+                elif store_sub_tab == "crafting":
+                    # Crafting: show craftable pairs with qty input and convert button
+                    header_h = 24
+                    row_h = 28
+                    col_img = 24
+                    col_sku = 80
+                    col_name = 200
+                    col_arrow = 20
+                    col_img2 = 24
+                    col_sku2 = 80
+                    col_name2 = 200
+                    col_cost = 80
+                    col_qty = 60
+                    col_btn = 80
+                    # Header row
+                    header_rect = pygame.Rect(content_x, content_y, content_width, header_h)
+                    pygame.draw.rect(screen, COLOR_TABLE_HEADER, header_rect)
+                    xh = content_x + 4
+                    # Columns: Img, SKU, Description, Cost, Img2, Sku2, Description2, Qty, Convert
+                    headers = [
+                        ("Img", col_img),
+                        ("SKU", col_sku),
+                        ("Description", col_name),
+                        ("", col_arrow),
+                        ("Img2", col_img2),
+                        ("SKU2", col_sku2),
+                        ("Description2", col_name2),
+                        ("Cost", col_cost),
+                        ("Qty", col_qty),
+                        ("Convert", col_btn),
+                    ]
+                    for text, w in headers:
+                        if text:
+                            ts = font_small.render(text, True, COLOR_TABLE_HEADER_TEXT)
+                            screen.blit(ts, (xh + 2, content_y + (header_h - ts.get_height())//2))
+                        xh += w
+
+                    # Recompute craftable list based on current inventory and items
+                    craftables = []
+                    for sku, itm in inv.items():
+                        info = items.get(sku, {})
+                        ctype = info.get("craft_type", "NULL")
+                        out_sku = info.get("craft_output", "")
+                        if ctype in ("RAW", "REFINED") and out_sku and out_sku in items:
+                            craftables.append((sku, out_sku))
+                    if not craftables:
+                        msg = font_medium.render("Nothing craftable in inventory", True, COLOR_CONTROL_TEXT)
+                        screen.blit(msg, (content_x + 8, content_y + header_h + 12))
+
+                    for i, (in_sku, out_sku) in enumerate(craftables):
+                        row_y = content_y + header_h + i * row_h
+                        row_col = COLOR_ROW_LIGHT if i % 2 == 0 else COLOR_ROW_DARK
+                        pygame.draw.rect(screen, row_col, (content_x, row_y, content_width, row_h))
+                        x = content_x + 4
+                        # Input image
+                        img1 = load_image_or_placeholder(items[in_sku]["image"], size=(20,20), colour=(160,160,160))
+                        screen.blit(img1, (x + (col_img - 20)//2, row_y + 4))
+                        x += col_img
+                        # Input SKU
+                        sku_surf = font_small.render(in_sku, True, COLOR_CONTROL_TEXT)
+                        screen.blit(sku_surf, (x + 2, row_y + 6))
+                        x += col_sku
+                        # Input Name (truncate)
+                        in_name = items[in_sku]["description"]
+                        in_surf = font_small.render(in_name[:25], True, COLOR_CONTROL_TEXT)
+                        screen.blit(in_surf, (x + 2, row_y + 6))
+                        x += col_name
+                        # Arrow
+                        arrow_surf = font_small.render("→", True, COLOR_CONTROL_TEXT)
+                        screen.blit(arrow_surf, (x + (col_arrow - arrow_surf.get_width())//2, row_y + 6))
+                        x += col_arrow
+                        # Output image
+                        img2 = load_image_or_placeholder(items[out_sku]["image"], size=(20,20), colour=(160,160,160))
+                        screen.blit(img2, (x + (col_img2 - 20)//2, row_y + 4))
+                        x += col_img2
+                        # Output SKU
+                        out_surf = font_small.render(out_sku, True, COLOR_CONTROL_TEXT)
+                        screen.blit(out_surf, (x + 2, row_y + 6))
+                        x += col_sku2
+                        # Output Name
+                        out_name = items[out_sku]["description"]
+                        out_desc_surf = font_small.render(out_name[:25], True, COLOR_CONTROL_TEXT)
+                        screen.blit(out_desc_surf, (x + 2, row_y + 6))
+                        x += col_name2
+                        # Cost per item (5% of shop price)
+                        unit_cost = shop[out_sku]["buy_price"] * 0.05
+                        cost_surf = font_small.render(f"${unit_cost:.2f}", True, COLOR_CONTROL_TEXT)
+                        screen.blit(cost_surf, (x + 2, row_y + 6))
+                        x += col_cost
+                        # Quantity input
+                        if i < len(store_craft_inputs):
+                            ib = store_craft_inputs[i]
+                            ib.rect = pygame.Rect(x + 2, row_y + 4, col_qty - 4, row_h - 8)
+                            ib.draw(screen, font_small)
+                        x += col_qty
+                        # Convert button
+                        if i < len(store_craft_buttons):
+                            btn = store_craft_buttons[i]
+                            btn.rect = pygame.Rect(x + 2, row_y + 4, col_btn - 4, row_h - 8)
+                            btn.draw(screen, font_small)
+                else:
+                    # Inventory upgrades: capacity adjustments
+                    # Top information
+                    y_pos = content_y
+                    # Display current capacity and usage
+                    cap_text = f"Capacity: {player['capacity']}  (Used: {inv_used_units(inv)})"
+                    cap_surf = font_medium.render(cap_text, True, COLOR_CONTROL_TEXT)
+                    screen.blit(cap_surf, (content_x + 4, y_pos))
+                    y_pos += 26
+                    rent_text = f"Rent next Sunday: ${player['capacity']}"
+                    rent_surf = font_medium.render(rent_text, True, COLOR_CONTROL_TEXT)
+                    screen.blit(rent_surf, (content_x + 4, y_pos))
+                    y_pos += 26
+                    cash_text = f"Cash: ${player['cash']:.2f}"
+                    cash_surf = font_medium.render(cash_text, True, COLOR_CONTROL_TEXT)
+                    screen.blit(cash_surf, (content_x + 4, y_pos))
+                    y_pos += 36
+                    # Increase capacity row
+                    inc_label = font_medium.render("Increase Capacity:", True, COLOR_CONTROL_TEXT)
+                    screen.blit(inc_label, (content_x + 4, y_pos))
+                    y_row = y_pos
+                    x_pos = content_x + 180
+                    increments = [1,5,10,100]
+                    # Draw quick add buttons
+                    for idx, inc in enumerate(increments):
+                        if idx < len(store_inv_add_buttons):
+                            btn = store_inv_add_buttons[idx]
+                            if btn.visible:
+                                btn.rect = pygame.Rect(x_pos, y_row, 60, 26)
+                                btn.draw(screen, font_small)
+                                x_pos += 64
+                    # Custom input and Add button
+                    store_inv_custom_add_input.rect = pygame.Rect(x_pos, y_row, 80, 26)
+                    store_inv_custom_add_input.draw(screen, font_small)
+                    x_pos += 84
+                    if len(store_inv_add_buttons) > len(increments):
+                        custom_add_btn = store_inv_add_buttons[len(increments)]
+                        custom_add_btn.rect = pygame.Rect(x_pos, y_row, 60, 26)
+                        custom_add_btn.draw(screen, font_small)
+                    y_pos += 36
+                    # Decrease capacity row
+                    dec_label = font_medium.render("Decrease Capacity:", True, COLOR_CONTROL_TEXT)
+                    screen.blit(dec_label, (content_x + 4, y_pos))
+                    y_row = y_pos
+                    x_pos = content_x + 180
+                    for idx, inc in enumerate(increments):
+                        if idx < len(store_inv_remove_buttons):
+                            btn = store_inv_remove_buttons[idx]
+                            if btn.visible:
+                                btn.rect = pygame.Rect(x_pos, y_row, 60, 26)
+                                btn.draw(screen, font_small)
+                                x_pos += 64
+                    store_inv_custom_remove_input.rect = pygame.Rect(x_pos, y_row, 80, 26)
+                    store_inv_custom_remove_input.draw(screen, font_small)
+                    x_pos += 84
+                    if len(store_inv_remove_buttons) > len(increments):
+                        custom_rem_btn = store_inv_remove_buttons[len(increments)]
+                        custom_rem_btn.rect = pygame.Rect(x_pos, y_row, 60, 26)
+                        custom_rem_btn.draw(screen, font_small)
+
             PANEL_PAD = 6
             HEADER_H = 20
             BTN_H = 16
@@ -2124,6 +2871,9 @@ def main():
                         msg_surf = font_small.render(msg, True, COLOR_CHAT_TEXT)
                         screen.blit(msg_surf, (chat_rect.x + 4, y_pos))
 
+        # Draw screensaver overlay on top of all UI elements when active.
+        if mode != "start":
+            ss_manager.draw(screen)
         pygame.display.flip()
 
     pygame.quit()

@@ -99,6 +99,120 @@ INV_COL_WIDTHS = [24, 60, 140, 60, 70, 70, 60, 50]
 SHOP_HEADERS = ["Img", "SKU", "Description", "Avg_Price", "Buy_price", "In Stock",  "Qty", ""]
 INV_HEADERS = ["Img", "SKU", "Description", "Avg_cost", "Sell_price", "SOH", "Qty", ""]
 
+# ---------------------------------------------------------------------------
+# Theme and UI skin configuration
+#
+# The market game now supports multiple visual themes and UI skins that can
+# be unlocked via the Store.  A theme defines a complete palette of colours
+# used throughout the UI while a UI skin defines how controls such as
+# buttons are drawn (e.g. rounded vs square corners).  The default theme
+# replicates the original Windows 95 palette while the "Monochrome Green"
+# theme uses a classic green‑on‑black look reminiscent of early CRT
+# terminals.  Additional themes or skins can be added here without
+# modifying the rest of the code.
+
+# A dictionary of available themes.  Each entry maps to a dictionary of
+# colour constants keyed by the name of the constant in this module.  When a
+# theme is applied the values in the selected dictionary are copied over
+# the existing module globals.  Keys not present in a theme will keep
+# whatever value is currently assigned.
+THEMES = {
+    "Default": {
+        # copy the current palette to allow switching back
+        "COLOR_DESKTOP": COLOR_DESKTOP,
+        "COLOR_WINDOW": COLOR_WINDOW,
+        "COLOR_TITLE_BAR": COLOR_TITLE_BAR,
+        "COLOR_TITLE_TEXT": COLOR_TITLE_TEXT,
+        "COLOR_WINDOW_BORDER_LIGHT": COLOR_WINDOW_BORDER_LIGHT,
+        "COLOR_WINDOW_BORDER_DARK": COLOR_WINDOW_BORDER_DARK,
+        "COLOR_CONTROL_BACKGROUND": COLOR_CONTROL_BACKGROUND,
+        "COLOR_CONTROL_BORDER_LIGHT": COLOR_CONTROL_BORDER_LIGHT,
+        "COLOR_CONTROL_BORDER_DARK": COLOR_CONTROL_BORDER_DARK,
+        "COLOR_CONTROL_TEXT": COLOR_CONTROL_TEXT,
+        "COLOR_TABLE_HEADER": COLOR_TABLE_HEADER,
+        "COLOR_TABLE_HEADER_TEXT": COLOR_TABLE_HEADER_TEXT,
+        "COLOR_ROW_LIGHT": COLOR_ROW_LIGHT,
+        "COLOR_ROW_DARK": COLOR_ROW_DARK,
+        "COLOR_GRAPH_BACKGROUND": COLOR_GRAPH_BACKGROUND,
+        "COLOR_GRAPH_LINE": COLOR_GRAPH_LINE,
+        "COLOR_TOAST": COLOR_TOAST,
+        "COLOR_CHAT_BACKGROUND": COLOR_CHAT_BACKGROUND,
+        "COLOR_CHAT_TEXT": COLOR_CHAT_TEXT,
+    },
+    # The monochrome green theme uses black and dark green backgrounds with
+    # bright green text.  This gives the game a retro "green screen"
+    # appearance.  Feel free to tweak these values or add new themes.
+    "Monochrome Green": {
+        "COLOR_DESKTOP": (0, 0, 0),
+        "COLOR_WINDOW": (0, 32, 0),
+        "COLOR_TITLE_BAR": (0, 64, 0),
+        "COLOR_TITLE_TEXT": (0, 255, 0),
+        "COLOR_WINDOW_BORDER_LIGHT": (0, 128, 0),
+        "COLOR_WINDOW_BORDER_DARK": (0, 96, 0),
+        "COLOR_CONTROL_BACKGROUND": (0, 48, 0),
+        "COLOR_CONTROL_BORDER_LIGHT": (0, 96, 0),
+        "COLOR_CONTROL_BORDER_DARK": (0, 64, 0),
+        "COLOR_CONTROL_TEXT": (0, 255, 0),
+        "COLOR_TABLE_HEADER": (0, 64, 0),
+        "COLOR_TABLE_HEADER_TEXT": (0, 255, 0),
+        "COLOR_ROW_LIGHT": (0, 40, 0),
+        "COLOR_ROW_DARK": (0, 24, 0),
+        "COLOR_GRAPH_BACKGROUND": (0, 24, 0),
+        "COLOR_GRAPH_LINE": (0, 200, 0),
+        "COLOR_TOAST": (0, 200, 0),
+        "COLOR_CHAT_BACKGROUND": (0, 0, 0),
+        "COLOR_CHAT_TEXT": (0, 255, 0),
+    },
+}
+
+# A dictionary of available UI skins.  Each skin may define properties that
+# affect how widgets are drawn.  Currently only the border radius for
+# controls (e.g. RetroButton) is supported.  Additional properties can be
+# added in the future.
+UI_SKINS = {
+    "Classic": {
+        "border_radius": 0,
+    },
+    "Rounded": {
+        "border_radius": 4,
+    },
+}
+
+# Holds the current theme and UI skin names.  These can be changed at
+# runtime via apply_theme() and apply_ui_skin() and are persisted to
+# player.csv when the user purchases a theme or skin.
+CURRENT_THEME = "Default"
+CURRENT_UI_SKIN = "Classic"
+
+# The active border radius for controls.  This is updated when the UI skin
+# changes.  Default to 0 (square corners) to match the original style.
+UI_BORDER_RADIUS = UI_SKINS[CURRENT_UI_SKIN]["border_radius"]
+
+def apply_theme(name: str) -> None:
+    """
+    Apply the specified theme by copying all defined colour values into this
+    module's global namespace.  Unknown names are ignored.
+    """
+    global CURRENT_THEME
+    if name not in THEMES:
+        return
+    theme = THEMES[name]
+    for const, value in theme.items():
+        if const in globals():
+            globals()[const] = value
+    CURRENT_THEME = name
+
+def apply_ui_skin(name: str) -> None:
+    """
+    Apply the specified UI skin by updating the border radius.  Unknown names
+    fallback to the default skin.
+    """
+    global CURRENT_UI_SKIN, UI_BORDER_RADIUS
+    if name not in UI_SKINS:
+        name = "Classic"
+    CURRENT_UI_SKIN = name
+    UI_BORDER_RADIUS = UI_SKINS[name].get("border_radius", 0)
+
 # Expose everything via __all__ for wildcard imports
 __all__ = [
     'WIDTH', 'HEIGHT', 'FPS',
@@ -115,4 +229,6 @@ __all__ = [
     'HEADER_HEIGHT', 'SCROLL_BUTTON_HEIGHT', 'ROW_HEIGHT', 'VISIBLE_ROWS',
     'CHAT_HEIGHT', 'HUD_HEIGHT', 'TITLE_BAR_HEIGHT', 'GRAPH_HEIGHT',
     'SHOP_COL_WIDTHS', 'INV_COL_WIDTHS', 'SHOP_HEADERS', 'INV_HEADERS'
+    ,'THEMES','UI_SKINS','CURRENT_THEME','CURRENT_UI_SKIN','UI_BORDER_RADIUS'
+    ,'apply_theme','apply_ui_skin'
 ]
