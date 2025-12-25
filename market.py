@@ -85,6 +85,11 @@ def init_previous_news_if_missing(prev_csv_path: str) -> None:
         write_csv_dicts(prev_csv_path, ["day", "sku", "headline", "article", "impact", "duration"], [])
 
 
+def reset_previous_news(prev_csv_path: str) -> None:
+    """Clear all persisted news history and write a fresh header."""
+    write_csv_dicts(prev_csv_path, ["day", "sku", "headline", "article", "impact", "duration"], [])
+
+
 def generate_news(day: int, items: Dict[str, Dict[str, str]], news_csv_path: str, prev_news_csv_path: str) -> List[Dict[str, str]]:
     """
     Generate 1–3 news events for random SKUs.  Each news item is pulled from

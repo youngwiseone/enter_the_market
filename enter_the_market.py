@@ -1107,14 +1107,10 @@ def main():
         if chat_offset < max_offset:
             chat_offset += 1
 
-    # Storage capacity adjustment: only on Sundays, once per week.
+    # Storage capacity adjustment: only on Sundays (can adjust multiple times).
     def _can_change_capacity():
         if not is_sunday(player["day"]):
-            set_toast("Storage can only be changed on Sunday")
-            return False
-        wk = week_number(player["day"])
-        if int(player.get("cap_change_week", 0) or 0) == wk:
-            set_toast("Storage already changed this Sunday")
+            set_toast("Inventory can only be changed on Sunday")
             return False
         return True
 
@@ -1122,7 +1118,6 @@ def main():
         if not _can_change_capacity():
             return
         player["capacity"] += CAPACITY_STEP
-        player["cap_change_week"] = week_number(player["day"])
         save_player(player)
         set_toast(f"Storage set to {player['capacity']} (rent will be ${player['capacity']} each Sunday)")
 
@@ -1134,7 +1129,6 @@ def main():
             set_toast(f"Can't drop storage below items held ({used})")
             return
         player["capacity"] = max(1, player["capacity"] - CAPACITY_STEP)
-        player["cap_change_week"] = week_number(player["day"])
         save_player(player)
         set_toast(f"Storage set to {player['capacity']} (rent will be ${player['capacity']} each Sunday)")
 
@@ -1163,6 +1157,12 @@ def main():
             generate_weekly_report_row(player, inv, shop, week_number(player["day"]))
             app_tab = "weekly"
             selected_report_week = week_number(player["day"])
+        # If we are now on a Friday, auto-switch to the News tab so the player sees impacts immediately.
+        dow = (player["day"] - 1) % BILL_INTERVAL  # Monday=0 ... Sunday=6
+        if dow == 4:  # Friday
+            app_tab = "news"
+            selected_news_week = week_number(player["day"])
+
         # Refresh the list of news weeks and clamp the selected week to the available range
         news_weeks = market.get_news_weeks(PREVIOUS_NEWS_CSV)
         if news_weeks:
@@ -1388,7 +1388,7 @@ def main():
                         set_toast("Starting cash must be > 0")
                         return
                     # reset files for new game
-                    for p in [SHOP_CSV, INV_CSV, PLAYER_CSV, TXN_CSV, WEEKLY_REPORT_CSV]:
+                    for p in [SHOP_CSV, INV_CSV, PLAYER_CSV, TXN_CSV, WEEKLY_REPORT_CSV, PREVIOUS_NEWS_CSV]:
                         if os.path.exists(p):
                             os.remove(p)
                     init_shop_from_items(items)
@@ -1424,8 +1424,8 @@ def main():
                     tab_news_btn = RetroButton(pygame.Rect(0,0,100,24), "News", go_news)
 
                     # Storage buttons live on the Weekly Report tab
-                    inc_space_btn = RetroButton(pygame.Rect(0,0,100,30), "Increase", increase_space)
-                    dec_space_btn = RetroButton(pygame.Rect(0,0,100,30), "Decrease", decrease_space)
+                    inc_space_btn = RetroButton(pygame.Rect(0,0,160,30), "Increase Inventory", increase_space)
+                    dec_space_btn = RetroButton(pygame.Rect(0,0,160,30), "Decrease Inventory", decrease_space)
 
                     # Weekly report navigation (prev/next week)
                     def report_prev():
@@ -1503,6 +1503,23 @@ def main():
                     mode = "market"
                     # Default to the weekly report tab on Sundays
                     app_tab = "weekly" if is_sunday(player["day"]) else "market"
+                    # If today is Friday, ensure today's news exists and impacts shop prices immediately.
+                    dow = (player["day"] - 1) % BILL_INTERVAL  # Monday=0 ... Sunday=6
+                    if dow == 4:  # Friday
+                        try:
+                            prev_rows = market.load_previous_news(PREVIOUS_NEWS_CSV)
+                            has_today = any(int(float(r.get("day", 0) or 0)) == player["day"] for r in prev_rows)
+                        except Exception:
+                            has_today = False
+                        if not has_today:
+                            new_events = market.generate_news(player["day"], items, NEWS_CSV, PREVIOUS_NEWS_CSV)
+                            if new_events:
+                                market.apply_news_to_shop(shop, market.get_active_news(player["day"], PREVIOUS_NEWS_CSV))
+                                save_shop(shop)
+                                add_chat_message("Market news released! Check the News tab.")
+                        app_tab = "news"
+                        news_weeks = market.get_news_weeks(PREVIOUS_NEWS_CSV)
+                        selected_news_week = news_weeks[-1] if news_weeks else week_number(player["day"])
                     set_toast("Welcome to the Market")
                 start_button = RetroButton(btn_rect, "Start", on_start)
             else:
