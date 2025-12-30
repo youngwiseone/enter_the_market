@@ -10,6 +10,8 @@ logic.  Colours are defined in an easy to read manner and grouped
 together for clarity.
 """
 
+from typing import Dict
+
 # Screen dimensions and frame rate
 WIDTH, HEIGHT = 1200, 720
 FPS = 60
@@ -116,9 +118,8 @@ INV_HEADERS = ["Img", "SKU", "Description", "Avg_cost", "Sell_price", "SOH", "Qt
 # theme is applied the values in the selected dictionary are copied over
 # the existing module globals.  Keys not present in a theme will keep
 # whatever value is currently assigned.
-THEMES = {
+THEMES: Dict[str, Dict[str, tuple]] = {
     "Default": {
-        # copy the current palette to allow switching back
         "COLOR_DESKTOP": COLOR_DESKTOP,
         "COLOR_WINDOW": COLOR_WINDOW,
         "COLOR_TITLE_BAR": COLOR_TITLE_BAR,
@@ -139,9 +140,7 @@ THEMES = {
         "COLOR_CHAT_BACKGROUND": COLOR_CHAT_BACKGROUND,
         "COLOR_CHAT_TEXT": COLOR_CHAT_TEXT,
     },
-    # The monochrome green theme uses black and dark green backgrounds with
-    # bright green text.  This gives the game a retro "green screen"
-    # appearance.  Feel free to tweak these values or add new themes.
+    # Monochrome green theme – a retro "green screen" look
     "Monochrome Green": {
         "COLOR_DESKTOP": (0, 0, 0),
         "COLOR_WINDOW": (0, 32, 0),
@@ -162,6 +161,116 @@ THEMES = {
         "COLOR_TOAST": (0, 200, 0),
         "COLOR_CHAT_BACKGROUND": (0, 0, 0),
         "COLOR_CHAT_TEXT": (0, 255, 0),
+    },
+    # Aquatic Blue – deep blues and turquoise hues
+    "Aquatic Blue": {
+        "COLOR_DESKTOP": (20, 40, 60),
+        "COLOR_WINDOW": (30, 90, 110),
+        "COLOR_TITLE_BAR": (10, 20, 80),
+        "COLOR_TITLE_TEXT": (200, 240, 255),
+        "COLOR_WINDOW_BORDER_LIGHT": (80, 140, 160),
+        "COLOR_WINDOW_BORDER_DARK": (10, 30, 50),
+        "COLOR_CONTROL_BACKGROUND": (60, 110, 130),
+        "COLOR_CONTROL_BORDER_LIGHT": (100, 160, 180),
+        "COLOR_CONTROL_BORDER_DARK": (20, 50, 70),
+        "COLOR_CONTROL_TEXT": (220, 240, 255),
+        "COLOR_TABLE_HEADER": (0, 60, 80),
+        "COLOR_TABLE_HEADER_TEXT": (220, 240, 255),
+        "COLOR_ROW_LIGHT": (45, 80, 100),
+        "COLOR_ROW_DARK": (35, 70, 90),
+        "COLOR_GRAPH_BACKGROUND": (30, 70, 90),
+        "COLOR_GRAPH_LINE": (200, 220, 255),
+        "COLOR_TOAST": (180, 80, 90),
+        "COLOR_CHAT_BACKGROUND": (10, 20, 30),
+        "COLOR_CHAT_TEXT": (150, 220, 255),
+    },
+    # Flame Vixen – rich purples and fiery oranges
+    "Flame Vixen": {
+        "COLOR_DESKTOP": (50, 20, 40),
+        "COLOR_WINDOW": (90, 40, 60),
+        "COLOR_TITLE_BAR": (120, 30, 100),
+        "COLOR_TITLE_TEXT": (255, 220, 200),
+        "COLOR_WINDOW_BORDER_LIGHT": (160, 80, 140),
+        "COLOR_WINDOW_BORDER_DARK": (70, 20, 60),
+        "COLOR_CONTROL_BACKGROUND": (110, 50, 80),
+        "COLOR_CONTROL_BORDER_LIGHT": (180, 90, 160),
+        "COLOR_CONTROL_BORDER_DARK": (60, 20, 40),
+        "COLOR_CONTROL_TEXT": (255, 230, 210),
+        "COLOR_TABLE_HEADER": (255, 180, 0),
+        "COLOR_TABLE_HEADER_TEXT": (255, 230, 210),
+        "COLOR_ROW_LIGHT": (100, 40, 70),
+        "COLOR_ROW_DARK": (80, 30, 60),
+        "COLOR_GRAPH_BACKGROUND": (70, 30, 50),
+        "COLOR_GRAPH_LINE": (255, 150, 100),
+        "COLOR_TOAST": (200, 60, 40),
+        "COLOR_CHAT_BACKGROUND": (20, 10, 30),
+        "COLOR_CHAT_TEXT": (255, 200, 180),
+    },
+    # Coder Black – high‑contrast black and white scheme
+    "Coder Black": {
+        "COLOR_DESKTOP": (0, 0, 0),
+        "COLOR_WINDOW": (15, 15, 15),
+        "COLOR_TITLE_BAR": (30, 30, 30),
+        "COLOR_TITLE_TEXT": (255, 255, 255),
+        "COLOR_WINDOW_BORDER_LIGHT": (60, 60, 60),
+        "COLOR_WINDOW_BORDER_DARK": (5, 5, 5),
+        "COLOR_CONTROL_BACKGROUND": (25, 25, 25),
+        "COLOR_CONTROL_BORDER_LIGHT": (70, 70, 70),
+        "COLOR_CONTROL_BORDER_DARK": (10, 10, 10),
+        "COLOR_CONTROL_TEXT": (255, 255, 255),
+        "COLOR_TABLE_HEADER": (40, 40, 40),
+        "COLOR_TABLE_HEADER_TEXT": (255, 255, 255),
+        "COLOR_ROW_LIGHT": (20, 20, 20),
+        "COLOR_ROW_DARK": (10, 10, 10),
+        "COLOR_GRAPH_BACKGROUND": (0, 0, 0),
+        "COLOR_GRAPH_LINE": (200, 200, 200),
+        "COLOR_TOAST": (220, 80, 80),
+        "COLOR_CHAT_BACKGROUND": (0, 0, 0),
+        "COLOR_CHAT_TEXT": (0, 255, 0),
+    },
+    # Hotdog Stand – vibrant red and yellow throwback
+    "Hotdog Stand": {
+        "COLOR_DESKTOP": (255, 0, 0),
+        "COLOR_WINDOW": (255, 255, 0),
+        "COLOR_TITLE_BAR": (0, 0, 0),
+        "COLOR_TITLE_TEXT": (255, 255, 0),
+        "COLOR_WINDOW_BORDER_LIGHT": (255, 255, 0),
+        "COLOR_WINDOW_BORDER_DARK": (128, 0, 0),
+        "COLOR_CONTROL_BACKGROUND": (255, 255, 0),
+        "COLOR_CONTROL_BORDER_LIGHT": (255, 255, 0),
+        "COLOR_CONTROL_BORDER_DARK": (128, 0, 0),
+        "COLOR_CONTROL_TEXT": (0, 0, 0),
+        "COLOR_TABLE_HEADER": (128, 0, 0),
+        "COLOR_TABLE_HEADER_TEXT": (255, 255, 0),
+        "COLOR_ROW_LIGHT": (255, 200, 0),
+        "COLOR_ROW_DARK": (255, 180, 0),
+        "COLOR_GRAPH_BACKGROUND": (255, 255, 0),
+        "COLOR_GRAPH_LINE": (0, 0, 0),
+        "COLOR_TOAST": (255, 0, 0),
+        "COLOR_CHAT_BACKGROUND": (255, 0, 0),
+        "COLOR_CHAT_TEXT": (255, 255, 0),
+    },
+    # Teal Breeze – mellow teal with soft highlights
+    "Teal Breeze": {
+        "COLOR_DESKTOP": (0, 96, 96),
+        "COLOR_WINDOW": (96, 128, 128),
+        "COLOR_TITLE_BAR": (0, 64, 64),
+        "COLOR_TITLE_TEXT": (240, 240, 240),
+        "COLOR_WINDOW_BORDER_LIGHT": (128, 192, 192),
+        "COLOR_WINDOW_BORDER_DARK": (0, 48, 48),
+        "COLOR_CONTROL_BACKGROUND": (112, 144, 144),
+        "COLOR_CONTROL_BORDER_LIGHT": (160, 200, 200),
+        "COLOR_CONTROL_BORDER_DARK": (0, 64, 64),
+        "COLOR_CONTROL_TEXT": (240, 240, 240),
+        "COLOR_TABLE_HEADER": (0, 80, 80),
+        "COLOR_TABLE_HEADER_TEXT": (240, 240, 240),
+        "COLOR_ROW_LIGHT": (80, 112, 112),
+        "COLOR_ROW_DARK": (64, 96, 96),
+        "COLOR_GRAPH_BACKGROUND": (48, 80, 80),
+        "COLOR_GRAPH_LINE": (200, 220, 220),
+        "COLOR_TOAST": (200, 80, 80),
+        "COLOR_CHAT_BACKGROUND": (0, 64, 64),
+        "COLOR_CHAT_TEXT": (200, 240, 240),
     },
 }
 

@@ -363,13 +363,20 @@ def seed_cosmetics_if_missing():
     """
     if os.path.exists(COSMETICS_CSV):
         return
+    # Define the initial cosmetics catalogue.  UI skins have been removed
+    # because the rounded corner feature was unreliable.  New themes
+    # (Aquatic Blue, Flame Vixen, Coder Black, Hotdog Stand and Teal Breeze)
+    # have been added to provide additional variety.  All themes except
+    # the default are locked by default and can be purchased in the store.
     cosmetics = [
         # Themes
         {"name": "Default", "type": "theme", "unlocked": "true", "price": "0"},
         {"name": "Monochrome Green", "type": "theme", "unlocked": "false", "price": "20"},
-        # UI skins
-        {"name": "Classic", "type": "ui", "unlocked": "true", "price": "0"},
-        {"name": "Rounded", "type": "ui", "unlocked": "false", "price": "15"},
+        {"name": "Aquatic Blue", "type": "theme", "unlocked": "false", "price": "25"},
+        {"name": "Flame Vixen", "type": "theme", "unlocked": "false", "price": "25"},
+        {"name": "Coder Black", "type": "theme", "unlocked": "false", "price": "20"},
+        {"name": "Hotdog Stand", "type": "theme", "unlocked": "false", "price": "20"},
+        {"name": "Teal Breeze", "type": "theme", "unlocked": "false", "price": "20"},
         # Screensavers
         {"name": "None", "type": "screensaver", "unlocked": "true", "price": "0"},
         {"name": "Bouncing Item", "type": "screensaver", "unlocked": "false", "price": "10"},
@@ -384,9 +391,15 @@ def load_cosmetics():
     # Normalize unlocked to a boolean string (lowercase)
     out = []
     for r in rows:
+        ctype = r.get("type", "").lower()
+        # Filter out UI skins entirely.  The rounded UI skin feature has
+        # been removed so we do not expose any existing UI cosmetic
+        # entries from earlier save files.
+        if ctype == "ui":
+            continue
         rec = {
             "name": r.get("name", ""),
-            "type": r.get("type", "").lower(),
+            "type": ctype,
             "unlocked": str(r.get("unlocked", "false")).lower() == "true",
         }
         # price may be missing or malformed
@@ -1548,7 +1561,8 @@ def main():
             if cur_price < avg_price * 0.95:  # at least 5% below average
                 buy_candidates.append((sku, cur_price, avg_price))
         if buy_candidates:
-            best_buy = min(buy_candidates, key=lambda x: x[1] / x[2])
+            # Use a safe ratio to avoid division by zero in case avg_price is zero
+            best_buy = min(buy_candidates, key=lambda x: (x[1] / x[2]) if x[2] > 0 else float('inf'))
             sku, cur_price, avg_price = best_buy
             tips.append(f"Tip: BUY {sku} – now ${cur_price:.2f} < avg ${avg_price:.2f}")
         # Sell tips
@@ -1559,7 +1573,15 @@ def main():
             if sell_price > avg_cost * 1.05:
                 sell_candidates.append((sku, sell_price, avg_cost))
         if sell_candidates:
-            best_sell = max(sell_candidates, key=lambda x: x[1] / x[2])
+            # Avoid division by zero when computing profitability.  Items
+            # produced via crafting may have an average cost of zero which
+            # would otherwise cause a ZeroDivisionError.  Treat zero cost
+            # items as having infinite return so they bubble to the top of
+            # the recommendation list.
+            def _sell_ratio(candidate):
+                sp, cost = candidate[1], candidate[2]
+                return sp / cost if cost > 0 else float('inf')
+            best_sell = max(sell_candidates, key=_sell_ratio)
             sku, sp, cost = best_sell
             tips.append(f"Tip: SELL {sku} – sell ${sp:.2f} > cost ${cost:.2f}")
         # Facts about rent due and cash (rent = current storage capacity)

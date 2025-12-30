@@ -1,7 +1,10 @@
 name,type,unlocked,price
 Default,theme,true,0.00
-Monochrome Green,theme,true,20.00
-Classic,ui,true,0.00
-Rounded,ui,true,15.00
+Monochrome Green,theme,false,50.00
+Aquatic Blue,theme,false,50.00
+Flame Vixen,theme,false,150.00
+Coder Black,theme,false,250.00
+Hotdog Stand,theme,false,50.00
+Teal Breeze,theme,false,50.00
 None,screensaver,true,0.00
-Bouncing Item,screensaver,true,10.00
+Bouncing Item,screensaver,false,100.00
